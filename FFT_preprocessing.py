@@ -8,7 +8,8 @@ t = df['Time'].values
 data = df['Accel_X'].values
 
 # 1. 시간 간격 Dt 계산 (샘플 간 시간 차이)
-Dt = t[1] - t[0]
+dt_array = np.diff(t)  # t[i+1] - t[i] -> 전체 간격 계산
+Dt = np.mean(dt_array)  # 평균으로 변환
 # 2. 샘플링 주파수 fs (1초당 몇 번 측정했는지)
 fs = 1000 / Dt                # fs = 1 / (Dt / 1000)
 # 3. 나이퀴스트 주파수 fn (최대 해석 가능한 주파수)
