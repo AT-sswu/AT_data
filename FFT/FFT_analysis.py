@@ -64,7 +64,7 @@ def analyze_csv_fft(file_path, axis='Accel_X', sample_rate=319, fft_size=None):
 
 # 실행
 analyze_csv_fft(
-    r"C:\Users\USER\PycharmProjects\AT_data\mpu6050_vibration_data.csv",
+    r"/mpu6050_vibration_data.csv",
     axis='Accel_X',
     sample_rate=319,
     fft_size=2048  # 원하는 FFT 사이즈 지정
