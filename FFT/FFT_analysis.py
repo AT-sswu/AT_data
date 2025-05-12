@@ -1,41 +1,50 @@
+import os
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
+from scipy.signal import butter, filtfilt
+
+
+# 저역통과 필터 함수
+def butter_lowpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs  # 나이퀴스트 주파수
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
+    y = filtfilt(b, a, data)
+    return y
+
 
 # FFT 분석 함수
-def fft_analysis(data, sample_rate=319, fft_size=None, plot=True): #size 조정 필요
-    # 평균 제거 (DC 성분 제거)
+def fft_analysis(data, sample_rate=319, fft_size=None, plot=True, file_title="FFT Frequency Spectrum"):
+    # DC 성분 제거
     data = data - data.mean()
 
-    # 데이터 길이
-    n_data = len(data)
-
     # FFT 사이즈 설정
-    n = fft_size if fft_size is not None else n_data
-
-    # Zero-padding
-    if n > n_data:
-        padded_data = np.pad(data, (0, n - n_data), 'constant')
-    else:
-        padded_data = data[:n]
+    n = fft_size if fft_size else len(data)
+    data = data[:n]
 
     # FFT 계산
-    y = fft(padded_data)
+    y = fft(data)
     x = fftfreq(n, 1 / sample_rate)
 
-    # 양의 주파수 부분만 추출
+    # 양의 주파수만 추출
     positive_freqs = x[:n // 2]
-    positive_amps = np.abs(y[:n // 2]) * 2 / n  # 진폭 정규화
+    positive_amps = np.abs(y[:n // 2]) * 2 / n
 
-    # 공진 주파수 계산
+    # 공진 주파수
     resonance_freq = positive_freqs[np.argmax(positive_amps)]
 
     # 시각화
     if plot:
         plt.figure(figsize=(10, 5))
         plt.plot(positive_freqs, positive_amps)
-        plt.title("FFT Frequency Spectrum")
+        plt.title(f"{file_title} - FFT Frequency Spectrum")
         plt.xlabel("Frequency (Hz)")
         plt.ylabel("Amplitude")
         plt.grid(True)
@@ -46,26 +55,38 @@ def fft_analysis(data, sample_rate=319, fft_size=None, plot=True): #size 조정 
     return positive_freqs, positive_amps, resonance_freq
 
 
-# CSV 파일 읽고 분석
-def analyze_csv_fft(file_path, axis='Accel_X', sample_rate=319, fft_size=None):
+# CSV 파일 읽기 + FFT 분석
+def analyze_csv_fft(file_path, axis='Accel_X', sample_rate=319,
+                    fft_size=None, apply_filter=True, filter_order=5):
     df = pd.read_csv(file_path)
 
     if axis not in df.columns:
         raise ValueError(f"{axis} 열이 CSV 파일에 없습니다. 가능한 열: {df.columns.tolist()}")
 
-    # 필요한 열 데이터 추출
+    # 데이터
     data = df[axis].dropna().values
 
-    # FFT 분석
-    freqs, amps, resonance_freq = fft_analysis(data, sample_rate=sample_rate, fft_size=fft_size, plot=True)
-    print(f"공진 주파수: {resonance_freq:.2f} Hz")
+    # 필터 적용 여부에 따라 처리
+    if apply_filter:
+        cutoff = sample_rate / 2 * 1/4  # cutoff 설정
+        data = butter_lowpass_filter(data, cutoff=cutoff, fs=sample_rate, order=filter_order)
+    file_title = os.path.splitext(os.path.basename(file_path))[0]
 
+    # FFT 분석 실행
+    freqs, amps, resonance_freq = fft_analysis(
+        data, sample_rate=sample_rate, fft_size=fft_size,
+        plot=True, file_title=file_title
+    )
+
+    print(f"공진 주파수: {resonance_freq:.2f} Hz")
     return freqs, amps, resonance_freq
 
 # 실행
 analyze_csv_fft(
-    r"/mpu6050_vibration_data.csv",
+    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_windy_data_set1.csv",
     axis='Accel_X',
     sample_rate=319,
-    fft_size=2048  # 원하는 FFT 사이즈 지정
+    fft_size=1024,
+    apply_filter=True,
+    filter_order=20
 )
