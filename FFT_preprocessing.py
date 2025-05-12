@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-df = pd.read_csv('mpu6050_static_data.csv')
+df = pd.read_csv('mpu6050_vibration_data.csv')
 
 t = df['Time'].values / 1_000_000  # 시간 배열 변환
 data = df['Accel_X'].values
