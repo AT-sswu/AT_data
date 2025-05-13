@@ -1,8 +1,10 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 
-df = pd.read_csv('../mpu6050_vibration_data.csv')
+file_title = os.path.splitext(os.path.basename('mpu6050_windy_data_set1.csv'))[0]
+df = pd.read_csv('mpu6050_windy_data_set1.csv')
 
 t = df['Time'].values / 1_000_000  # 시간 배열 변환
 data = df['Accel_X'].values
@@ -30,7 +32,7 @@ print(f"신호의 총 길이 duration: {duration:.2f} 초")
 
 plt.figure(figsize=(10, 4))
 plt.plot(t, data)
-plt.title("Original Signal vs Time")
+plt.title(f"{file_title}-Original Signal")
 plt.xlabel("Time (s)")
 plt.ylabel("Signal (Accel_X)")
 plt.grid(True)
