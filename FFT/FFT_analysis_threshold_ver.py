@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
 from scipy.signal import butter, filtfilt
 
-# 저역통과 필터
+# 저역통과 필터 함수
 def butter_lowpass(cutoff, fs, order=5):
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
@@ -17,7 +17,7 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
     return filtfilt(b, a, data)
 
 # Threshold 계산 함수
-def calculate_threshold(amps, method="std", n_std=3, recon_error_value=0.3):
+def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
     if method == "std":
         mean = np.mean(amps)
         std = np.std(amps)
@@ -27,18 +27,16 @@ def calculate_threshold(amps, method="std", n_std=3, recon_error_value=0.3):
     elif method == "recon_error":
         threshold = recon_error_value
     else:
-        raise ValueError("지원하지 않는 threshold 방법입니다. ['std', 'percentile', 'recon_error']")
+        raise ValueError("지원하지 않는 threshold 방법입니다.")
     return threshold
 
-# FFT 분석
+# FFT 분석 함수 (플롯은 이 함수 외부에서 처리)
 def fft_analysis(
     data,
     sample_rate=296,
     fft_size=None,
-    plot=True,
-    file_title="FFT Frequency Spectrum",
     threshold_method="percentile",
-    n_std=3,
+    n_std=2.75,
     recon_error_value=0.3
 ):
     data = data - np.mean(data)
@@ -51,7 +49,6 @@ def fft_analysis(
     positive_amps = np.abs(y[:n // 2]) * 2 / n
     resonance_freq = positive_freqs[np.argmax(positive_amps)]
 
-    # Threshold 계산
     threshold = calculate_threshold(positive_amps, threshold_method, n_std, recon_error_value)
 
     # Threshold 이상 구간 탐색
@@ -69,38 +66,30 @@ def fft_analysis(
     if in_range:
         threshold_ranges.append((range_start, positive_freqs[-1]))
 
-    # 시각화
-    if plot:
-        plt.figure(figsize=(10, 5))
-        plt.plot(positive_freqs, positive_amps, label='Amplitude')
-        plt.title(f"{file_title} - FFT Frequency Spectrum")
-        plt.xlabel("Frequency (Hz)")
-        plt.ylabel("Amplitude")
-        plt.grid(True)
-        plt.axvline(resonance_freq, color='r', linestyle='--', label=f'Resonance: {resonance_freq:.2f} Hz')
-        plt.axhline(y=threshold, color='g', linestyle=':', label=f'Threshold: {threshold:.3f}')
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
-
     return positive_freqs, positive_amps, resonance_freq, threshold_ranges, threshold
 
-# 여러 축 분석 함수
+# 여러 축 분석 및 subplot 시각화
 def analyze_multiple_axes(
     file_path,
     axes,
     sample_rate=296,
-    fft_size=256,
+    fft_size=512,
     apply_filter=True,
     filter_order=5,
-    threshold_method="percentile",  # 'std', 'percentile', 'recon_error'
-    n_std=3,
+    threshold_method="percentile",
+    n_std=2.75,
     recon_error_value=0.3
 ):
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
 
-    for axis in axes:
+    num_axes = len(axes)
+    num_rows = 2
+    num_cols = 3
+
+    plt.figure(figsize=(18, 8))  # 전체 subplot 사이즈
+
+    for idx, axis in enumerate(axes):
         if axis not in df.columns:
             print(f"[경고] {axis} 열이 CSV 파일에 없습니다.")
             continue
@@ -116,8 +105,6 @@ def analyze_multiple_axes(
             data,
             sample_rate=sample_rate,
             fft_size=fft_size,
-            plot=True,
-            file_title=f"{file_title} - {axis}",
             threshold_method=threshold_method,
             n_std=n_std,
             recon_error_value=recon_error_value
@@ -133,15 +120,30 @@ def analyze_multiple_axes(
         else:
             print("→ Threshold 이상 구간 없음.")
 
-# 실행 예시
+        # subplot 그리기
+        plt.subplot(num_rows, num_cols, idx + 1)
+        plt.plot(freqs, amps, label="Amplitude")
+        plt.axvline(resonance_freq, color='r', linestyle='--', label=f'Resonance: {resonance_freq:.2f} Hz')
+        plt.axhline(y=threshold, color='g', linestyle=':', label=f'Threshold: {threshold:.3f}')
+        plt.title(f"{axis}\nResonance: {resonance_freq:.2f} Hz")
+        plt.xlabel("Frequency (Hz)")
+        plt.ylabel("Amplitude")
+        plt.grid(True)
+        plt.legend()
+
+    plt.suptitle(f"FFT Frequency Spectrum - {file_title}", fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.93])  # 제목 공간 확보
+    plt.show()
+
+# 실행
 analyze_multiple_axes(
     r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_windy_data_set1.csv",
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
     sample_rate=296,
-    fft_size=256,
+    fft_size=512,
     apply_filter=True,
     filter_order=5,
-    threshold_method="percentile",      # "std", "percentile", "recon_error"
-    n_std=2.75,                  # 표준편차 n 값
-    recon_error_value=0.3        # reconstruction error 기준 값
+    threshold_method="percentile",  # "std", "percentile", "recon_error"
+    n_std=2.75,
+    recon_error_value=0.3
 )
