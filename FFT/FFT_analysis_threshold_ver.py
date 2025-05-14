@@ -35,7 +35,7 @@ def fft_analysis(
     data,
     sample_rate=296,
     fft_size=None,
-    threshold_method="percentile",
+    threshold_method="std",
     n_std=2.75,
     recon_error_value=0.3
 ):
@@ -76,7 +76,7 @@ def analyze_multiple_axes(
     fft_size=512,
     apply_filter=True,
     filter_order=5,
-    threshold_method="percentile",
+    threshold_method="std",
     n_std=2.75,
     recon_error_value=0.3
 ):
@@ -137,13 +137,13 @@ def analyze_multiple_axes(
 
 # 실행
 analyze_multiple_axes(
-    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_windy_data_set1.csv",
+    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_vibration_data_set5.csv",
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-    sample_rate=296,
+    sample_rate=287,
     fft_size=512,
     apply_filter=True,
     filter_order=5,
-    threshold_method="percentile",  # "std", "percentile", "recon_error"
+    threshold_method="std",  # "std", "percentile", "recon_error"
     n_std=2.75,
     recon_error_value=0.3
 )
