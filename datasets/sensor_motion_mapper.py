@@ -63,14 +63,15 @@ def compute_class_energy(file_label_map, axes, sample_rate=296, fft_size=512, ap
                 energy = fft_energy(data, sample_rate=sample_rate, fft_size=fft_size)
                 energy_by_class[class_label].append(energy)
 
-    # 클래스별 평균 에너지 계산
     mean_energy_by_class = {
         label: np.mean(energies) for label, energies in energy_by_class.items() if energies
     }
     return mean_energy_by_class
 
-# 새 데이터 분류 (threshold 기반)
-def classify_with_threshold(file_path, mean_energy_by_class, axes, sample_rate=296, fft_size=512, apply_filter=True, filter_order=5):
+# 새 데이터 분류 함수
+def classify_with_threshold(file_path, mean_energy_by_class, axes,
+                            sample_rate=296, fft_size=512, apply_filter=True, filter_order=5,
+                            threshold_method="std", n_std=2.75, recon_error_value=0.3):
     df = pd.read_csv(file_path)
     sample_energies = []
 
@@ -85,25 +86,32 @@ def classify_with_threshold(file_path, mean_energy_by_class, axes, sample_rate=2
 
     mean_sample_energy = np.mean(sample_energies)
 
-    # 가장 가까운 클래스 찾기 (거리 최소화)
-    min_diff = float('inf')
-    predicted_class = "etc"
-    for label, mean_energy in mean_energy_by_class.items():
-        diff = abs(mean_sample_energy - mean_energy)
-        if diff < min_diff:
-            min_diff = diff
-            predicted_class = label
+    # 각 클래스와의 에너지 차이 측정
+    diffs = {label: abs(mean_sample_energy - class_energy)
+             for label, class_energy in mean_energy_by_class.items()}
 
-    return predicted_class
+    closest_class = min(diffs, key=diffs.get)
+    diff_value = diffs[closest_class]
 
-# 클래스 → 매핑 코드 (바람, 진동, stationary 세 가지 상황 처리)
+    # threshold 기반 필터링
+    threshold = calculate_threshold(list(mean_energy_by_class.values()),
+                                    method=threshold_method,
+                                    n_std=n_std,
+                                    recon_error_value=recon_error_value)
+
+    if diff_value > threshold:
+        return "etc"
+
+    return closest_class
+
+# 클래스 → 매핑 코드
 def get_class_code():
     return {
         "stationary": "00",
         "windy": "01",
         "vibration": "10",
-        "windy_vibration": "11",  # 바람 + 진동 동시 감지
-        "etc": "00"  # 기타 상황도 fallback 처리
+        "windy_vibration": "11",
+        "etc": "00"
     }
 
 # 실행 예시
@@ -128,23 +136,25 @@ if __name__ == "__main__":
 
     axes = ["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"]
 
-    # 클래스별 평균 에너지 계산
     mean_energy_by_class = compute_class_energy(file_label_map, axes)
 
-    # 새로운 데이터에 대해 예측
-    new_file = r"C:\Users\USER\PycharmProjects\AT_data\datasets\new_vibration_data.csv"
-    predicted_class = classify_with_threshold(new_file, mean_energy_by_class, axes)
+    new_file = r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_static_data.csv"
+    predicted_class = classify_with_threshold(
+        new_file,
+        mean_energy_by_class,
+        axes,
+        threshold_method="std",          # std 또는 "percentile", "recon_error"
+        n_std=2.75,
+        recon_error_value=0.3
+    )
 
-    # 예측된 클래스에 대응하는 코드 찾기
     label_to_code = get_class_code()
 
-    # 바람과 진동이 동시에 있는 경우 "windy_vibration"으로 매핑
+    # 바람 + 진동 복합 처리
     if "windy" in predicted_class and "vibration" in predicted_class:
         predicted_class = "windy_vibration"
-    # 기타 상황은 stationary로 매핑
     elif "windy" not in predicted_class and "vibration" not in predicted_class:
         predicted_class = "stationary"
 
-    code = label_to_code.get(predicted_class, "00")  # default는 stationary(00)
-
+    code = label_to_code.get(predicted_class, "00")
     print(f"예측된 클래스: {predicted_class}, 코드: {code}")
