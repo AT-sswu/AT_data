@@ -137,7 +137,7 @@ def analyze_multiple_axes(
 
 # 실행
 analyze_multiple_axes(
-    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_vibration_data_set5.csv",
+    r"/Users/seohyeon/PycharmProjects/AT_data/datasets/mpu6050_vibration_data_set5.csv",
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
     sample_rate=287,
     fft_size=512,
