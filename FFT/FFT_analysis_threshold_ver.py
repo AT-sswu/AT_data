@@ -83,6 +83,9 @@ def analyze_multiple_axes(
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
 
+    # CSV 저장을 위한 결과 리스트
+    results = []
+
     num_axes = len(axes)
     num_rows = 2
     num_cols = 3
@@ -113,12 +116,32 @@ def analyze_multiple_axes(
         print(f"→ 공진 주파수: {resonance_freq:.2f} Hz")
         print(f"→ 사용된 Threshold 값: {threshold:.4f} (기준: {threshold_method})")
 
+        # Threshold 범위를 문자열로 변환
+        threshold_ranges_str = ""
         if threshold_ranges:
             print("→ Threshold 이상 구간:")
+            ranges_list = []
             for r in threshold_ranges:
+                range_str = f"{r[0]:.2f}-{r[1]:.2f}Hz"
+                ranges_list.append(range_str)
                 print(f"   - {r[0]:.2f} Hz ~ {r[1]:.2f} Hz")
+            threshold_ranges_str = "; ".join(ranges_list)
         else:
             print("→ Threshold 이상 구간 없음.")
+            threshold_ranges_str = "없음"
+
+        # 결과를 리스트에 추가
+        results.append({
+            'Axis': axis,
+            'Resonance_Frequency_Hz': round(resonance_freq, 2),
+            'Threshold_Value': round(threshold, 4),
+            'Threshold_Method': threshold_method,
+            'Threshold_Ranges': threshold_ranges_str,
+            'Sample_Rate': sample_rate,
+            'FFT_Size': fft_size,
+            'Filter_Applied': apply_filter,
+            'Filter_Order': filter_order if apply_filter else 'N/A'
+        })
 
         # subplot 그리기
         plt.subplot(num_rows, num_cols, idx + 1)
@@ -135,9 +158,17 @@ def analyze_multiple_axes(
     plt.tight_layout(rect=[0, 0, 1, 0.93])  # 제목 공간 확보
     plt.show()
 
+    # 결과를 CSV로 저장
+    results_df = pd.DataFrame(results)
+    output_path = os.path.join(os.path.dirname(file_path), f"{file_title}_fft_analysis_results.csv")
+    results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    print(f"\n[결과 저장] FFT 분석 결과가 저장되었습니다: {output_path}")
+
+    return results_df
+
 # 실행
 analyze_multiple_axes(
-    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_vibration_data_set5.csv",
+    r"/Users/seohyeon/PycharmProjects/AT_data/datasets/mpu6050_vibration_data_set5.csv",
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
     sample_rate=287,
     fft_size=512,

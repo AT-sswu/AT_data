@@ -35,6 +35,9 @@ def analyze_multiple_axes(file_path, axes, sample_rate=296, fft_size=512, apply_
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
 
+    # CSV 저장을 위한 결과 리스트
+    results = []
+
     num_axes = len(axes)
     num_rows = 2
     num_cols = 3
@@ -56,6 +59,16 @@ def analyze_multiple_axes(file_path, axes, sample_rate=296, fft_size=512, apply_
 
         print(f"→ {axis} 축의 공진 주파수: {resonance_freq:.2f} Hz")
 
+        # 결과를 리스트에 추가
+        results.append({
+            'Axis': axis,
+            'Resonance_Frequency_Hz': round(resonance_freq, 2),
+            'Sample_Rate': sample_rate,
+            'FFT_Size': fft_size,
+            'Filter_Applied': apply_filter,
+            'Filter_Order': filter_order if apply_filter else 'N/A'
+        })
+
         # subplot 그리기
         plt.subplot(num_rows, num_cols, idx + 1)
         plt.plot(freqs, amps)
@@ -70,9 +83,17 @@ def analyze_multiple_axes(file_path, axes, sample_rate=296, fft_size=512, apply_
     plt.tight_layout(rect=[0, 0, 1, 0.93])
     plt.show()
 
+    # 결과를 CSV로 저장
+    results_df = pd.DataFrame(results)
+    output_path = os.path.join(os.path.dirname(file_path), f"{file_title}_fft_analysis_results.csv")
+    results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+    print(f"\n[결과 저장] FFT 분석 결과가 저장되었습니다: {output_path}")
+
+    return results_df
+
 # 실행
 analyze_multiple_axes(
-    r"C:\Users\USER\PycharmProjects\AT_data\datasets\mpu6050_windy_data_set1.csv",
+    r"/Users/seohyeon/PycharmProjects/AT_data/datasets/mpu6050_vibration_data_set5.csv",
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
     sample_rate=296,
     fft_size=512,
