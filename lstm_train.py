@@ -5,7 +5,7 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.keras.models import Sequential
+from keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 import os
