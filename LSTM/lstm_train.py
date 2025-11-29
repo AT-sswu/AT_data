@@ -38,7 +38,7 @@ else:
 print("\n[1단계] 전처리된 데이터 로드 중...")
 
 try:
-    with open('processed_data.pkl', 'rb') as f:
+    with open('../processed_data.pkl', 'rb') as f:
         data_dict = pickle.load(f)
 
     X_train = data_dict['X_train']
@@ -92,7 +92,7 @@ model.summary()
 print("\n[3단계] 콜백 설정 중...")
 
 # 결과 저장 폴더
-os.makedirs('results', exist_ok=True)
+os.makedirs('../results', exist_ok=True)
 
 callbacks = [
     # Early Stopping: Validation loss가 10 에포크 동안 개선되지 않으면 중단
@@ -105,7 +105,7 @@ callbacks = [
 
     # Model Checkpoint: 최고 성능 모델 저장
     ModelCheckpoint(
-        'results/best_model.keras',
+        '../results/best_model.keras',
         monitor='val_accuracy',
         save_best_only=True,
         verbose=1
@@ -174,7 +174,7 @@ plt.close()
 print("\n[6단계] Test 데이터 평가 중...")
 
 # 최고 성능 모델 로드
-best_model = keras.models.load_model('results/best_model.keras')
+best_model = keras.models.load_model('../results/best_model.keras')
 
 # 예측
 y_pred_proba = best_model.predict(X_test, verbose=0)

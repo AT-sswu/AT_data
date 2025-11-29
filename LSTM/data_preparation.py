@@ -194,7 +194,7 @@ data_dict = {
 }
 
 # 피클로 저장
-with open('processed_data.pkl', 'wb') as f:
+with open('../processed_data.pkl', 'wb') as f:
     pickle.dump(data_dict, f)
 
 print(f"✓ 저장 완료: processed_data.pkl")

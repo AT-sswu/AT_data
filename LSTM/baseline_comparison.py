@@ -12,7 +12,7 @@ plt.rcParams['axes.unicode_minus'] = False
 
 CLASS_NAMES = ['Stationary', 'Vibration', 'Windy']
 
-with open('processed_data.pkl', 'rb') as f:
+with open('../processed_data.pkl', 'rb') as f:
     data_dict = pickle.load(f)
 
 X_test = data_dict['X_test']
@@ -42,7 +42,7 @@ baseline_precision, baseline_recall, baseline_f1, _ = precision_recall_fscore_su
     y_true, y_pred_baseline, average='weighted', zero_division=0
 )
 
-lstm_model = keras.models.load_model('results/best_model.keras')
+lstm_model = keras.models.load_model('../results/best_model.keras')
 y_pred_lstm_proba = lstm_model.predict(X_test, verbose=0)
 y_pred_lstm = np.argmax(y_pred_lstm_proba, axis=1)
 
