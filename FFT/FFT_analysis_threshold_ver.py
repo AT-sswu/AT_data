@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
 from scipy.signal import butter, filtfilt
+from pathlib import Path
+
 
 # 저역통과 필터 함수
 def butter_lowpass(cutoff, fs, order=5):
@@ -12,9 +14,11 @@ def butter_lowpass(cutoff, fs, order=5):
     b, a = butter(order, normal_cutoff, btype='low', analog=False)
     return b, a
 
+
 def butter_lowpass_filter(data, cutoff, fs, order=5):
     b, a = butter_lowpass(cutoff, fs, order=order)
     return filtfilt(b, a, data)
+
 
 # Threshold 계산 함수
 def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
@@ -30,14 +34,15 @@ def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
         raise ValueError("지원하지 않는 threshold 방법입니다.")
     return threshold
 
-# FFT 분석 함수 (플롯은 이 함수 외부에서 처리)
+
+# FFT 분석 함수
 def fft_analysis(
-    data,
-    sample_rate=296,
-    fft_size=None,
-    threshold_method="std",
-    n_std=2.75,
-    recon_error_value=0.3
+        data,
+        sample_rate=296,
+        fft_size=None,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3
 ):
     data = data - np.mean(data)
     n = fft_size if fft_size else len(data)
@@ -68,33 +73,32 @@ def fft_analysis(
 
     return positive_freqs, positive_amps, resonance_freq, threshold_ranges, threshold
 
-# 여러 축 분석 및 subplot 시각화
-def analyze_multiple_axes(
-    file_path,
-    axes,
-    sample_rate=296,
-    fft_size=512,
-    apply_filter=True,
-    filter_order=5,
-    threshold_method="std",
-    n_std=2.75,
-    recon_error_value=0.3
+
+# 단일 파일 분석 함수
+def analyze_single_file(
+        file_path,
+        axes,
+        sample_rate=287,
+        fft_size=512,
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3
 ):
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
 
-    # CSV 저장을 위한 결과 리스트
     results = []
 
-    num_axes = len(axes)
     num_rows = 2
     num_cols = 3
 
-    plt.figure(figsize=(18, 8))  # 전체 subplot 사이즈
+    plt.figure(figsize=(18, 8))
 
     for idx, axis in enumerate(axes):
         if axis not in df.columns:
-            print(f"[경고] {axis} 열이 CSV 파일에 없습니다.")
+            print(f"[경고] {axis} 열이 CSV 파일에 없습니다: {file_path}")
             continue
 
         data = df[axis].dropna().values
@@ -103,7 +107,6 @@ def analyze_multiple_axes(
             cutoff = sample_rate / 4
             data = butter_lowpass_filter(data, cutoff=cutoff, fs=sample_rate, order=filter_order)
 
-        print(f"\n[분석 축: {axis}]")
         freqs, amps, resonance_freq, threshold_ranges, threshold = fft_analysis(
             data,
             sample_rate=sample_rate,
@@ -113,25 +116,16 @@ def analyze_multiple_axes(
             recon_error_value=recon_error_value
         )
 
-        print(f"→ 공진 주파수: {resonance_freq:.2f} Hz")
-        print(f"→ 사용된 Threshold 값: {threshold:.4f} (기준: {threshold_method})")
-
         # Threshold 범위를 문자열로 변환
         threshold_ranges_str = ""
         if threshold_ranges:
-            print("→ Threshold 이상 구간:")
-            ranges_list = []
-            for r in threshold_ranges:
-                range_str = f"{r[0]:.2f}-{r[1]:.2f}Hz"
-                ranges_list.append(range_str)
-                print(f"   - {r[0]:.2f} Hz ~ {r[1]:.2f} Hz")
+            ranges_list = [f"{r[0]:.2f}-{r[1]:.2f}Hz" for r in threshold_ranges]
             threshold_ranges_str = "; ".join(ranges_list)
         else:
-            print("→ Threshold 이상 구간 없음.")
             threshold_ranges_str = "없음"
 
-        # 결과를 리스트에 추가
         results.append({
+            'File': file_title,
             'Axis': axis,
             'Resonance_Frequency_Hz': round(resonance_freq, 2),
             'Threshold_Value': round(threshold, 4),
@@ -155,26 +149,154 @@ def analyze_multiple_axes(
         plt.legend()
 
     plt.suptitle(f"FFT Frequency Spectrum - {file_title}", fontsize=16)
-    plt.tight_layout(rect=[0, 0, 1, 0.93])  # 제목 공간 확보
-    plt.show()
+    plt.tight_layout(rect=[0, 0, 1, 0.93])
+    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot.png"), dpi=150)
+    plt.close()
 
-    # 결과를 CSV로 저장
-    results_df = pd.DataFrame(results)
-    output_path = os.path.join(os.path.dirname(file_path), f"{file_title}_fft_analysis_results.csv")
-    results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
-    print(f"\n[결과 저장] FFT 분석 결과가 저장되었습니다: {output_path}")
+    return results
 
-    return results_df
+
+# 배치 분석 함수 (모든 파일 처리)
+def analyze_all_files(
+        data_dir,
+        axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
+        sample_rate=287,
+        fft_size=512,
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3
+):
+    """
+    지정된 디렉토리의 모든 CSV 파일에 대해 FFT 분석을 수행합니다.
+
+    Parameters:
+    -----------
+    data_dir : str
+        데이터 파일이 있는 디렉토리 경로
+    """
+    data_path = Path(data_dir)
+
+    # CSV 파일 목록 가져오기
+    csv_files = sorted(list(data_path.glob("mpu_raw_optimized_*.csv")))
+
+    if not csv_files:
+        print(f"[오류] {data_dir}에서 CSV 파일을 찾을 수 없습니다.")
+        return None
+
+    print(f"총 {len(csv_files)}개의 파일을 찾았습니다.\n")
+
+    # 클래스별로 파일 분류
+    class_files = {
+        'driving': [],
+        'lidar': [],
+        'motor': [],
+        'lidar_driving': [],
+        'motor_driving': []
+    }
+
+    for file in csv_files:
+        filename = file.name
+        if 'motor_driving' in filename:
+            class_files['motor_driving'].append(file)
+        elif 'lidar_driving' in filename:
+            class_files['lidar_driving'].append(file)
+        elif 'driving' in filename:
+            class_files['driving'].append(file)
+        elif 'lidar' in filename:
+            class_files['lidar'].append(file)
+        elif 'motor' in filename:
+            class_files['motor'].append(file)
+
+    # 전체 결과를 저장할 리스트
+    all_results = []
+
+    # 각 클래스별로 처리
+    for class_name, files in class_files.items():
+        if not files:
+            continue
+
+        print(f"\n{'=' * 60}")
+        print(f"클래스: {class_name.upper()} ({len(files)}개 파일)")
+        print(f"{'=' * 60}")
+
+        for idx, file_path in enumerate(files, 1):
+            print(f"\n[{idx}/{len(files)}] 분석 중: {file_path.name}")
+
+            try:
+                file_results = analyze_single_file(
+                    file_path=str(file_path),
+                    axes=axes,
+                    sample_rate=sample_rate,
+                    fft_size=fft_size,
+                    apply_filter=apply_filter,
+                    filter_order=filter_order,
+                    threshold_method=threshold_method,
+                    n_std=n_std,
+                    recon_error_value=recon_error_value
+                )
+
+                # 클래스 정보 추가
+                for result in file_results:
+                    result['Class'] = class_name
+
+                all_results.extend(file_results)
+                print(f"  ✓ 완료")
+
+            except Exception as e:
+                print(f"  ✗ 오류 발생: {e}")
+                continue
+
+    # 전체 결과를 하나의 CSV로 저장
+    if all_results:
+        results_df = pd.DataFrame(all_results)
+
+        # 컬럼 순서 재정렬
+        column_order = ['Class', 'File', 'Axis', 'Resonance_Frequency_Hz',
+                        'Threshold_Value', 'Threshold_Method', 'Threshold_Ranges',
+                        'Sample_Rate', 'FFT_Size', 'Filter_Applied', 'Filter_Order']
+        results_df = results_df[column_order]
+
+        output_path = data_path / "all_files_fft_analysis_results.csv"
+        results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
+
+        print(f"\n{'=' * 60}")
+        print(f"[완료] 전체 분석 결과 저장됨: {output_path}")
+        print(f"총 {len(all_results)}개의 분석 결과 (파일 {len(csv_files)}개 × 축 {len(axes)}개)")
+        print(f"{'=' * 60}")
+
+        # 클래스별 요약 통계
+        print("\n[클래스별 요약]")
+        for class_name in class_files.keys():
+            class_data = results_df[results_df['Class'] == class_name]
+            if len(class_data) > 0:
+                print(f"  {class_name}: {len(class_data) // len(axes)}개 파일")
+
+        return results_df
+    else:
+        print("[오류] 분석된 결과가 없습니다.")
+        return None
+
 
 # 실행
-analyze_multiple_axes(
-    r"/Users/seohyeon/PycharmProjects/AT_data/datasets/mpu6050_vibration_data_set5.csv",
-    axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-    sample_rate=287,
-    fft_size=512,
-    apply_filter=True,
-    filter_order=5,
-    threshold_method="std",  # "std", "percentile", "recon_error"
-    n_std=2.75,
-    recon_error_value=0.3
-)
+if __name__ == "__main__":
+    # 데이터 디렉토리 경로 설정
+    DATA_DIR = "/Users/seohyeon/PycharmProjects/AT_data/data_v1"
+
+    # 배치 분석 실행
+    results = analyze_all_files(
+        data_dir=DATA_DIR,
+        axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
+        sample_rate=287,
+        fft_size=512,
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",  # "std", "percentile", "recon_error"
+        n_std=2.75,
+        recon_error_value=0.3
+    )
+
+    if results is not None:
+        print("\n[결과 미리보기]")
+        print(results.head(10))

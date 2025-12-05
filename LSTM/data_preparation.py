@@ -6,16 +6,18 @@ import os
 import pickle
 
 # 설정
-DATA_FOLDER = '/Users/seohyeon/PycharmProjects/AT_data/datasets'
+DATA_FOLDER = '/Users/seohyeon/PycharmProjects/AT_data/data_v1'
 SEQUENCE_LENGTH = 100  # 시퀀스 길이 (100개 연속 데이터포인트)
 STEP_SIZE = 10  # 슬라이딩 윈도우 스텝 (10개씩 건너뛰기)
 RANDOM_STATE = 42
 
-# 라벨 매핑
+# 라벨 매핑 (5개 클래스)
 LABEL_MAP = {
-    'stationary': 0,
-    'vibration': 1,
-    'windy': 2
+    'lidar': 0,
+    'motor': 1,
+    'driving': 2,
+    'lidar_driving': 3,
+    'motor_driving': 4
 }
 
 print("=" * 60)
@@ -43,27 +45,33 @@ if not os.path.exists(DATA_FOLDER):
 csv_files = [f for f in os.listdir(DATA_FOLDER) if f.endswith('.csv')]
 
 if len(csv_files) == 0:
-    print(f"  CSV 파일을 찾을 수 없습니다: {DATA_FOLDER}")
+    print(f" CSV 파일을 찾을 수 없습니다: {DATA_FOLDER}")
     exit(1)
 
-print(f" 찾은 CSV 파일 개수: {len(csv_files)}개")
+print(f"✓ 찾은 CSV 파일 개수: {len(csv_files)}개")
 
 # 각 파일 로드
 for filename in sorted(csv_files):
     filepath = os.path.join(DATA_FOLDER, filename)
 
-    # 파일명에서 라벨 추출
-    if 'stationary' in filename.lower():
-        label = LABEL_MAP['stationary']
-        label_name = 'Stationary'
-    elif 'vibration' in filename.lower():
-        label = LABEL_MAP['vibration']
-        label_name = 'Vibration'
-    elif 'windy' in filename.lower():
-        label = LABEL_MAP['windy']
-        label_name = 'Windy'
+    # 파일명에서 라벨 추출 (순서 중요: 복합 라벨을 먼저 체크)
+    if 'lidar_driving' in filename.lower():
+        label = LABEL_MAP['lidar_driving']
+        label_name = 'lidar_driving'
+    elif 'motor_driving' in filename.lower():
+        label = LABEL_MAP['motor_driving']
+        label_name = 'motor_driving'
+    elif 'lidar' in filename.lower():
+        label = LABEL_MAP['lidar']
+        label_name = 'lidar'
+    elif 'motor' in filename.lower():
+        label = LABEL_MAP['motor']
+        label_name = 'motor'
+    elif 'driving' in filename.lower():
+        label = LABEL_MAP['driving']
+        label_name = 'driving'
     else:
-        print(f"  라벨을 인식할 수 없는 파일: {filename}")
+        print(f"⚠ 라벨을 인식할 수 없는 파일: {filename}")
         continue
 
     # CSV 로드
@@ -74,8 +82,8 @@ for filename in sorted(csv_files):
 
     # 컬럼 존재 확인
     if not all(col in df.columns for col in feature_columns):
-        print(f" 필요한 컬럼이 없는 파일: {filename}")
-        print(f" 파일 컬럼: {df.columns.tolist()}")
+        print(f"️ 필요한 컬럼이 없는 파일: {filename}")
+        print(f"   파일 컬럼: {df.columns.tolist()}")
         continue
 
     data = df[feature_columns].values
@@ -153,8 +161,8 @@ for label_name, label_id in LABEL_MAP.items():
 # ==================== 4. 데이터 분할 ====================
 print(f"\n[4단계] 데이터 분할 중 (Train 70%, Val 15%, Test 15%)...")
 
-# One-hot 인코딩
-y_seq_onehot = np.eye(3)[y_seq]
+# One-hot 인코딩 (5개 클래스)
+y_seq_onehot = np.eye(5)[y_seq]
 
 # Train + Temp 분할 (70% / 30%)
 X_train, X_temp, y_train, y_temp = train_test_split(
@@ -211,5 +219,4 @@ print(f"  - Validation: {X_val.shape}")
 print(f"  - Test: {X_test.shape}")
 print(f"  - 시퀀스 길이: {SEQUENCE_LENGTH}")
 print(f"  - 특성 수: 6 (Accel_X/Y/Z, Gyro_X/Y/Z)")
-print(f"  - 클래스 수: 3 (Stationary, Vibration, Windy)")
-
+print(f"  - 클래스 수: 5 (lidar, motor, driving, lidar_driving, motor_driving)")

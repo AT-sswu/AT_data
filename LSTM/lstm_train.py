@@ -20,8 +20,8 @@ BATCH_SIZE = 64
 EPOCHS = 100
 LEARNING_RATE = 0.001
 
-# 라벨 이름
-CLASS_NAMES = ['Stationary', 'Vibration', 'Windy']
+# 라벨 이름 (5개 클래스)
+CLASS_NAMES = ['lidar', 'motor', 'driving', 'lidar_driving', 'motor_driving']
 
 print("=" * 60)
 print("LSTM 모델 학습 시작")
@@ -54,7 +54,7 @@ try:
     print(f"  - Test: {X_test.shape}")
 
 except FileNotFoundError:
-    print("️  processed_data.pkl 파일을 찾을 수 없습니다.")
+    print(" processed_data.pkl 파일을 찾을 수 없습니다.")
     print("먼저 data_preparation.py를 실행하세요!")
     exit(1)
 
@@ -74,8 +74,8 @@ model = Sequential([
     Dense(32, activation='relu'),
     Dropout(0.3),
 
-    # Output Layer
-    Dense(3, activation='softmax')
+    # Output Layer (5개 클래스)
+    Dense(5, activation='softmax')
 ])
 
 # 모델 컴파일
@@ -166,8 +166,8 @@ axes[1].legend(fontsize=10)
 axes[1].grid(True, alpha=0.3)
 
 plt.tight_layout()
-plt.savefig('results/training_history.png', dpi=300, bbox_inches='tight')
-print("✓ 저장: results/training_history.png")
+plt.savefig('../results/training_history.png', dpi=300, bbox_inches='tight')
+print("✓ 저장: ../results/training_history.png")
 plt.close()
 
 # ==================== 6. Test 데이터 평가 ====================
@@ -197,36 +197,40 @@ print("\n[7단계] 혼동 행렬 생성 중...")
 # 혼동 행렬 계산
 cm = confusion_matrix(y_true, y_pred)
 
-# 시각화
-plt.figure(figsize=(10, 8))
+# 시각화 (5x5 행렬)
+plt.figure(figsize=(12, 10))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
             xticklabels=CLASS_NAMES,
             yticklabels=CLASS_NAMES,
             cbar_kws={'label': '샘플 수'},
-            annot_kws={'size': 14})
+            annot_kws={'size': 12})
 plt.xlabel('예측 클래스', fontsize=13, fontweight='bold')
 plt.ylabel('실제 클래스', fontsize=13, fontweight='bold')
 plt.title('혼동 행렬 (Confusion Matrix)', fontsize=15, fontweight='bold', pad=15)
+plt.xticks(rotation=45, ha='right')
+plt.yticks(rotation=0)
 plt.tight_layout()
-plt.savefig('results/confusion_matrix.png', dpi=300, bbox_inches='tight')
-print("✓ 저장: results/confusion_matrix.png")
+plt.savefig('../results/confusion_matrix.png', dpi=300, bbox_inches='tight')
+print("✓ 저장: ../results/confusion_matrix.png")
 plt.close()
 
 # 정규화된 혼동 행렬 (비율)
 cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
 
-plt.figure(figsize=(10, 8))
+plt.figure(figsize=(12, 10))
 sns.heatmap(cm_normalized, annot=True, fmt='.2%', cmap='Greens',
             xticklabels=CLASS_NAMES,
             yticklabels=CLASS_NAMES,
             cbar_kws={'label': '비율'},
-            annot_kws={'size': 14})
+            annot_kws={'size': 12})
 plt.xlabel('예측 클래스', fontsize=13, fontweight='bold')
 plt.ylabel('실제 클래스', fontsize=13, fontweight='bold')
 plt.title('정규화된 혼동 행렬 (비율)', fontsize=15, fontweight='bold', pad=15)
+plt.xticks(rotation=45, ha='right')
+plt.yticks(rotation=0)
 plt.tight_layout()
-plt.savefig('results/confusion_matrix_normalized.png', dpi=300, bbox_inches='tight')
-print("✓ 저장: results/confusion_matrix_normalized.png")
+plt.savefig('../results/confusion_matrix_normalized.png', dpi=300, bbox_inches='tight')
+print("✓ 저장: ../results/confusion_matrix_normalized.png")
 plt.close()
 
 # ==================== 8. 예측 샘플 확인 ====================
@@ -247,9 +251,24 @@ for class_id, class_name in enumerate(CLASS_NAMES):
         confidence = y_pred_proba[idx][y_pred[idx]] * 100
 
         status = "✓" if true_label == pred_label else "✗"
-        print(f"  {status} 실제: {true_label:12} | 예측: {pred_label:12} | 신뢰도: {confidence:5.2f}%")
+        print(f"  {status} 실제: {true_label:15} | 예측: {pred_label:15} | 신뢰도: {confidence:5.2f}%")
 
-# ==================== 9. 최종 결과 요약 ====================
+# ==================== 9. 클래스별 정확도 분석 ====================
+print("\n[9단계] 클래스별 정확도 분석...")
+
+print("\n" + "=" * 60)
+print("클래스별 세부 성능")
+print("=" * 60)
+
+for class_id, class_name in enumerate(CLASS_NAMES):
+    class_indices = np.where(y_true == class_id)[0]
+    if len(class_indices) > 0:
+        class_accuracy = np.mean(y_pred[class_indices] == class_id)
+        total_samples = len(class_indices)
+        correct_samples = np.sum(y_pred[class_indices] == class_id)
+        print(f"  [{class_name:15}] 정확도: {class_accuracy:.4f} ({correct_samples}/{total_samples})")
+
+# ==================== 10. 최종 결과 요약 ====================
 print("\n" + "=" * 60)
 print("학습 및 평가 완료!")
 print("=" * 60)
@@ -260,16 +279,9 @@ print(f"  - Validation Accuracy: {history.history['val_accuracy'][-1]:.4f}")
 print(f"  - Test Accuracy: {test_accuracy:.4f}")
 
 print(f"\n 저장된 파일:")
-print(f"  - 모델: results/best_model.keras")
-print(f"  - 학습 그래프: results/training_history.png")
-print(f"  - 혼동 행렬: results/confusion_matrix.png")
-print(f"  - 정규화 혼동 행렬: results/confusion_matrix_normalized.png")
+print(f"  - 모델: ../results/best_model.keras")
+print(f"  - 학습 그래프: ../results/training_history.png")
+print(f"  - 혼동 행렬: ../results/confusion_matrix.png")
+print(f"  - 정규화 혼동 행렬: ../results/confusion_matrix_normalized.png")
 
-print(f"\n 모든 작업 완료!")
-print(f"\n 다음 단계:")
-print(f"  1. results 폴더의 그래프들을 확인")
-print(f"  2. 성능이 부족하다면 하이퍼파라미터를 조정:")
-print(f"     - BATCH_SIZE (현재: {BATCH_SIZE})")
-print(f"     - LEARNING_RATE (현재: {LEARNING_RATE})")
-print(f"     - LSTM units (현재: 64)")
-print(f"  3. best_model.keras를 실제 시스템에 적용")
+print(f"\n모든 작업 완료!")
