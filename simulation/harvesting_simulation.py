@@ -111,7 +111,7 @@ try:
     except:
         model = keras.models.load_model('/Users/seohyeon/PycharmProjects/AT_data/results/best_model.keras')
         data_file = '/Users/seohyeon/PycharmProjects/AT_data/processed_data.pkl'
-        print("✓ 기본 모델 로드: results/best_model.keras")
+        print("✓ 기본 모델 로드: results/best_model_improved.keras")
 
     # 데이터 로드 (스케일러 등 필요)
     with open(data_file, 'rb') as f:
