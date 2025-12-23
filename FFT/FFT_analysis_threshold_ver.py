@@ -20,6 +20,46 @@ def butter_lowpass_filter(data, cutoff, fs, order=5):
     return filtfilt(b, a, data)
 
 
+# 샘플링 레이트 계산 함수
+def calculate_sample_rate(df, time_column='Time_us'):
+    """
+    CSV 파일의 시간 열(마이크로초)에서 샘플링 레이트를 계산합니다.
+
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        데이터프레임
+    time_column : str
+        시간 열의 이름 (기본값: 'Time_us')
+
+    Returns:
+    --------
+    float : 샘플링 레이트 (Hz)
+    """
+    if time_column not in df.columns:
+        # 시간 열이 없으면 첫 번째 열을 시간으로 간주
+        time_column = df.columns[0]
+
+    time_data = df[time_column].dropna().values
+
+    if len(time_data) < 2:
+        raise ValueError("시간 데이터가 충분하지 않습니다.")
+
+    # 시간 간격 계산 (마이크로초 단위)
+    time_diffs = np.diff(time_data)
+
+    # 평균 시간 간격 (마이크로초)
+    avg_time_diff_us = np.mean(time_diffs)
+
+    # 평균 시간 간격을 초 단위로 변환
+    avg_time_diff_sec = avg_time_diff_us / 1_000_000
+
+    # 샘플링 레이트 = 1 / 평균 시간 간격
+    sample_rate = 1 / avg_time_diff_sec
+
+    return sample_rate
+
+
 # Threshold 계산 함수
 def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
     if method == "std":
@@ -78,16 +118,20 @@ def fft_analysis(
 def analyze_single_file(
         file_path,
         axes,
-        sample_rate=287,
-        fft_size=512,
+        fft_size=8192,
         apply_filter=True,
         filter_order=5,
         threshold_method="std",
         n_std=2.75,
-        recon_error_value=0.3
+        recon_error_value=0.3,
+        time_column='Time_us'
 ):
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
+
+    # 샘플링 레이트 자동 계산
+    sample_rate = calculate_sample_rate(df, time_column)
+    print(f"  계산된 샘플링 레이트: {sample_rate:.2f} Hz")
 
     results = []
 
@@ -131,7 +175,7 @@ def analyze_single_file(
             'Threshold_Value': round(threshold, 4),
             'Threshold_Method': threshold_method,
             'Threshold_Ranges': threshold_ranges_str,
-            'Sample_Rate': sample_rate,
+            'Sample_Rate': round(sample_rate, 2),
             'FFT_Size': fft_size,
             'Filter_Applied': apply_filter,
             'Filter_Order': filter_order if apply_filter else 'N/A'
@@ -160,13 +204,13 @@ def analyze_single_file(
 def analyze_all_files(
         data_dir,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        sample_rate=287,
-        fft_size=512,
+        fft_size=8192,
         apply_filter=True,
         filter_order=5,
         threshold_method="std",
         n_std=2.75,
-        recon_error_value=0.3
+        recon_error_value=0.3,
+        time_column='Time'
 ):
     """
     지정된 디렉토리의 모든 CSV 파일에 대해 FFT 분석을 수행합니다.
@@ -175,6 +219,10 @@ def analyze_all_files(
     -----------
     data_dir : str
         데이터 파일이 있는 디렉토리 경로
+    fft_size : int
+        FFT 크기 (기본값: 8192)
+    time_column : str
+        시간 열 이름 (기본값: 'Time')
     """
     data_path = Path(data_dir)
 
@@ -228,13 +276,13 @@ def analyze_all_files(
                 file_results = analyze_single_file(
                     file_path=str(file_path),
                     axes=axes,
-                    sample_rate=sample_rate,
                     fft_size=fft_size,
                     apply_filter=apply_filter,
                     filter_order=filter_order,
                     threshold_method=threshold_method,
                     n_std=n_std,
-                    recon_error_value=recon_error_value
+                    recon_error_value=recon_error_value,
+                    time_column=time_column
                 )
 
                 # 클래스 정보 추가
@@ -288,13 +336,13 @@ if __name__ == "__main__":
     results = analyze_all_files(
         data_dir=DATA_DIR,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        sample_rate=287,
-        fft_size=512,
+        fft_size=8192,  # FFT 크기 8192로 변경
         apply_filter=True,
         filter_order=5,
         threshold_method="std",  # "std", "percentile", "recon_error"
         n_std=2.75,
-        recon_error_value=0.3
+        recon_error_value=0.3,
+        time_column='Time_us'  # 시간 열 이름 (마이크로초 단위)
     )
 
     if results is not None:
