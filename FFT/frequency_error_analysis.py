@@ -480,7 +480,7 @@ def visualize_statistics_csv(stats_df, output_dir):
 # 실행
 if __name__ == "__main__":
     # FFT 분석 결과 CSV 파일 경로
-    RESULTS_CSV = "/Users/seohyeon/PycharmProjects/AT_data/data_v1/all_files_fft_analysis_results.csv"
+    RESULTS_CSV = "/Users/seohyeon/PycharmProjects/AT_data/data_v1/all_files_fft_analysis_results_kalman.csv"
 
     # 분석 실행 (통계 CSV 시각화 포함)
     stats = analyze_frequency_distribution(RESULTS_CSV)
