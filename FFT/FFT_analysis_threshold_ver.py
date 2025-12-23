@@ -116,7 +116,7 @@ def analyze_single_file(
             fft_size
         )
 
-        band_cv = calculate_band_cv(freqs, amps, 1.0, 100.0)
+        band_cv = calculate_band_cv(freqs, amps, f_min=0.3, f_max=60.0)
 
         results.append({
             "Class": class_name,                 # ★ 추가
