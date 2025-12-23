@@ -7,16 +7,16 @@ from scipy.signal import butter, filtfilt
 from pathlib import Path
 
 
-# ===============================
-# Butterworth LPF
-# ===============================
-def apply_butterworth_filter(data, sample_rate, cutoff=100.0, order=4):
-    """
-    Butterworth 저역통과 필터 적용
-    """
-    nyq = 0.5 * sample_rate
+# 저역통과 필터 함수
+def butter_lowpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype="low")
+    b, a = butter(order, normal_cutoff, btype='low', analog=False)
+    return b, a
+
+
+def butter_lowpass_filter(data, cutoff, fs, order=5):
+    b, a = butter_lowpass(cutoff, fs, order=order)
     return filtfilt(b, a, data)
 
 
@@ -26,34 +26,27 @@ def calculate_sample_rate(df, time_column='Time_us'):
     CSV 파일의 시간 열(마이크로초)에서 샘플링 레이트를 계산합니다.
     """
     if time_column not in df.columns:
+        # 시간 열이 없으면 첫 번째 열을 시간으로 간주
         time_column = df.columns[0]
 
     time_data = df[time_column].dropna().values
+
     if len(time_data) < 2:
         raise ValueError("시간 데이터가 충분하지 않습니다.")
 
+    # 시간 간격 계산 (마이크로초 단위)
     time_diffs = np.diff(time_data)
+
+    # 평균 시간 간격 (마이크로초)
     avg_time_diff_us = np.mean(time_diffs)
+
+    # 평균 시간 간격을 초 단위로 변환
     avg_time_diff_sec = avg_time_diff_us / 1_000_000
+
+    # 샘플링 레이트 = 1 / 평균 시간 간격
     sample_rate = 1 / avg_time_diff_sec
+
     return sample_rate
-
-
-# ===============================
-# Band-limited CV
-# ===============================
-def calculate_band_cv(freqs, amps, f_min=1.0, f_max=100.0):
-    """
-    특정 주파수 대역의 Coefficient of Variation 계산
-    """
-    band = (freqs >= f_min) & (freqs <= f_max)
-    band_amps = amps[band]
-
-    mean_val = np.mean(band_amps)
-    if mean_val < 1e-12:
-        return np.nan
-
-    return np.std(band_amps) / mean_val * 100.0
 
 
 # Threshold 계산 함수
@@ -73,33 +66,23 @@ def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
 
 # FFT 분석 함수
 def fft_analysis(
-    data,
-    sample_rate,
-    window_size=4096,
-    fft_size=16384,
-    threshold_method="std",
-    n_std=2.75,
-    recon_error_value=0.3
+        data,
+        sample_rate=296,
+        fft_size=None,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3
 ):
-    """
-    FFT 분석 수행
-    window_size 만큼의 데이터를 사용하고, fft_size로 zero-padding
-    """
-    # window_size 만큼만 사용
-    data = data[:window_size]
     data = data - np.mean(data)
-
-    # zero-padding
-    if fft_size > window_size:
-        data = np.pad(data, (0, fft_size - window_size))
+    n = fft_size if fft_size else len(data)
+    data = data[:n]
 
     y = fft(data)
-    x = fftfreq(fft_size, 1 / sample_rate)
-
-    positive_freqs = x[:fft_size // 2]
-    positive_amps = np.abs(y[:fft_size // 2]) * 2 / window_size
-
+    x = fftfreq(n, 1 / sample_rate)
+    positive_freqs = x[:n // 2]
+    positive_amps = np.abs(y[:n // 2]) * 2 / n
     resonance_freq = positive_freqs[np.argmax(positive_amps)]
+
     threshold = calculate_threshold(positive_amps, threshold_method, n_std, recon_error_value)
 
     # Threshold 이상 구간 탐색
@@ -122,17 +105,15 @@ def fft_analysis(
 
 # 단일 파일 분석 함수
 def analyze_single_file(
-    file_path,
-    axes,
-    window_size=4096,
-    fft_size=16384,
-    cutoff_freq=100.0,
-    threshold_method="std",
-    n_std=2.75,
-    recon_error_value=0.3,
-    time_column='Time_us',
-    band_cv_f_min=0.3,
-    band_cv_f_max=60.0
+        file_path,
+        axes,
+        fft_size=8192,
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3,
+        time_column='Time_us'
 ):
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
@@ -142,8 +123,10 @@ def analyze_single_file(
     print(f"  계산된 샘플링 레이트: {sample_rate:.2f} Hz")
 
     results = []
+
     num_rows = 2
     num_cols = 3
+
     plt.figure(figsize=(18, 8))
 
     for idx, axis in enumerate(axes):
@@ -153,26 +136,18 @@ def analyze_single_file(
 
         data = df[axis].dropna().values
 
-        # Butterworth 필터 적용
-        data = apply_butterworth_filter(
-            data,
-            sample_rate=sample_rate,
-            cutoff=cutoff_freq,
-            order=4
-        )
+        if apply_filter:
+            cutoff = sample_rate / 4
+            data = butter_lowpass_filter(data, cutoff=cutoff, fs=sample_rate, order=filter_order)
 
         freqs, amps, resonance_freq, threshold_ranges, threshold = fft_analysis(
             data,
             sample_rate=sample_rate,
-            window_size=window_size,
             fft_size=fft_size,
             threshold_method=threshold_method,
             n_std=n_std,
             recon_error_value=recon_error_value
         )
-
-        # Band CV 계산
-        band_cv = calculate_band_cv(freqs, amps, f_min=band_cv_f_min, f_max=band_cv_f_max)
 
         # Threshold 범위를 문자열로 변환
         threshold_ranges_str = ""
@@ -186,16 +161,13 @@ def analyze_single_file(
             'File': file_title,
             'Axis': axis,
             'Resonance_Frequency_Hz': round(resonance_freq, 2),
-            'Band_CV': round(band_cv, 2) if not np.isnan(band_cv) else 'N/A',
-            'Band_CV_Freq_Range': f"{band_cv_f_min}-{band_cv_f_max}Hz",
             'Threshold_Value': round(threshold, 4),
             'Threshold_Method': threshold_method,
             'Threshold_Ranges': threshold_ranges_str,
             'Sample_Rate': round(sample_rate, 2),
-            'Window_Size': window_size,
             'FFT_Size': fft_size,
-            'Filter_Type': 'Butterworth',
-            'Cutoff_Hz': cutoff_freq
+            'Filter_Applied': apply_filter,
+            'Filter_Order': filter_order if apply_filter else 'N/A'
         })
 
         # subplot 그리기
@@ -203,15 +175,15 @@ def analyze_single_file(
         plt.plot(freqs, amps, label="Amplitude")
         plt.axvline(resonance_freq, color='r', linestyle='--', label=f'Resonance: {resonance_freq:.2f} Hz')
         plt.axhline(y=threshold, color='g', linestyle=':', label=f'Threshold: {threshold:.3f}')
-        plt.title(f"{axis}\nResonance: {resonance_freq:.2f} Hz | CV: {band_cv:.2f}%")
+        plt.title(f"{axis}\nResonance: {resonance_freq:.2f} Hz")
         plt.xlabel("Frequency (Hz)")
         plt.ylabel("Amplitude")
         plt.grid(True)
         plt.legend()
 
-    plt.suptitle(f"FFT Frequency Spectrum - {file_title} (Filter: Butterworth)", fontsize=16)
+    plt.suptitle(f"FFT Frequency Spectrum - {file_title}", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.93])
-    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot_butterworth.png"), dpi=150)
+    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot.png"), dpi=150)
     plt.close()
 
     return results
@@ -219,107 +191,82 @@ def analyze_single_file(
 
 # 배치 분석 함수 (모든 파일 처리)
 def analyze_all_files(
-    data_dir,
-    axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-    window_size=4096,
-    fft_size=16384,
-    cutoff_freq=100.0,
-    threshold_method="std",
-    n_std=2.75,
-    recon_error_value=0.3,
-    time_column='Time_us',
-    band_cv_f_min=0.3,
-    band_cv_f_max=60.0
+        data_dir,
+        axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
+        fft_size=8192,
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",
+        n_std=2.75,
+        recon_error_value=0.3,
+        time_column='Time_us'
 ):
     """
     지정된 디렉토리의 모든 CSV 파일에 대해 FFT 분석을 수행합니다.
     """
     data_path = Path(data_dir)
 
-    # CSV 파일 목록 가져오기
-    csv_files = sorted(list(data_path.glob("mpu_raw_optimized_*.csv")))
+    # CSV 파일 목록 가져오기 - mpu_raw_base_ 패턴으로 변경
+    csv_files = sorted(list(data_path.glob("mpu_raw_base_*.csv")))
 
     if not csv_files:
-        print(f"[오류] {data_dir}에서 CSV 파일을 찾을 수 없습니다.")
+        print(f"[오류] {data_dir}에서 mpu_raw_base_*.csv 파일을 찾을 수 없습니다.")
         return None
 
     print(f"총 {len(csv_files)}개의 파일을 찾았습니다.\n")
-    print(f"사용 필터: Butterworth (Cutoff: {cutoff_freq} Hz)")
-    print(f"Window Size: {window_size}, FFT Size: {fft_size}")
-
-    # 클래스별로 파일 분류
-    class_files = {
-        'driving': [],
-        'lidar': [],
-        'motor': [],
-        'lidar_driving': [],
-        'motor_driving': []
-    }
-
-    for file in csv_files:
-        filename = file.name
-        if 'motor_driving' in filename:
-            class_files['motor_driving'].append(file)
-        elif 'lidar_driving' in filename:
-            class_files['lidar_driving'].append(file)
-        elif 'driving' in filename:
-            class_files['driving'].append(file)
-        elif 'lidar' in filename:
-            class_files['lidar'].append(file)
-        elif 'motor' in filename:
-            class_files['motor'].append(file)
+    print(f"[파일 목록]")
+    for f in csv_files:
+        print(f"  - {f.name}")
 
     # 전체 결과를 저장할 리스트
     all_results = []
 
-    # 각 클래스별로 처리
-    for class_name, files in class_files.items():
-        if not files:
+    print(f"\n{'=' * 60}")
+    print(f"BASE 파일 분석 시작 ({len(csv_files)}개 파일)")
+    print(f"{'=' * 60}")
+
+    # 모든 파일 처리
+    for idx, file_path in enumerate(csv_files, 1):
+        print(f"\n[{idx}/{len(csv_files)}] 분석 중: {file_path.name}")
+
+        try:
+            file_results = analyze_single_file(
+                file_path=str(file_path),
+                axes=axes,
+                fft_size=fft_size,
+                apply_filter=apply_filter,
+                filter_order=filter_order,
+                threshold_method=threshold_method,
+                n_std=n_std,
+                recon_error_value=recon_error_value,
+                time_column=time_column
+            )
+
+            # 클래스 정보를 'base'로 추가
+            for result in file_results:
+                result['Class'] = 'base'
+
+            all_results.extend(file_results)
+            print(f"  ✓ 완료 ({len(file_results)}개 축 분석)")
+
+        except Exception as e:
+            import traceback
+            print(f"  ✗ 오류 발생: {e}")
+            print(f"  ✗ 상세 오류:")
+            traceback.print_exc()
             continue
-
-        print(f"\n{'=' * 60}")
-        print(f"클래스: {class_name.upper()} ({len(files)}개 파일)")
-        print(f"{'=' * 60}")
-
-        for idx, file_path in enumerate(files, 1):
-            print(f"\n[{idx}/{len(files)}] 분석 중: {file_path.name}")
-            try:
-                file_results = analyze_single_file(
-                    file_path=str(file_path),
-                    axes=axes,
-                    window_size=window_size,
-                    fft_size=fft_size,
-                    cutoff_freq=cutoff_freq,
-                    threshold_method=threshold_method,
-                    n_std=n_std,
-                    recon_error_value=recon_error_value,
-                    time_column=time_column,
-                    band_cv_f_min=band_cv_f_min,
-                    band_cv_f_max=band_cv_f_max
-                )
-
-                # 클래스 정보 추가
-                for result in file_results:
-                    result['Class'] = class_name
-
-                all_results.extend(file_results)
-                print(f"  ✓ 완료")
-            except Exception as e:
-                print(f"  ✗ 오류 발생: {e}")
-                continue
 
     # 전체 결과를 하나의 CSV로 저장
     if all_results:
         results_df = pd.DataFrame(all_results)
 
         # 컬럼 순서 재정렬
-        column_order = ['Class', 'File', 'Axis', 'Resonance_Frequency_Hz', 'Band_CV',
-                       'Band_CV_Freq_Range', 'Threshold_Value', 'Threshold_Method',
-                       'Threshold_Ranges', 'Sample_Rate', 'Window_Size', 'FFT_Size',
-                       'Filter_Type', 'Cutoff_Hz']
+        column_order = ['Class', 'File', 'Axis', 'Resonance_Frequency_Hz',
+                        'Threshold_Value', 'Threshold_Method', 'Threshold_Ranges',
+                        'Sample_Rate', 'FFT_Size', 'Filter_Applied', 'Filter_Order']
         results_df = results_df[column_order]
 
-        output_path = data_path / f"all_files_fft_analysis_butterworth_bandCV.csv"
+        output_path = data_path / "fft_analysis_base_results.csv"
         results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
         print(f"\n{'=' * 60}")
@@ -327,37 +274,38 @@ def analyze_all_files(
         print(f"총 {len(all_results)}개의 분석 결과 (파일 {len(csv_files)}개 × 축 {len(axes)}개)")
         print(f"{'=' * 60}")
 
-        # 클래스별 요약 통계
-        print("\n[클래스별 요약]")
-        for class_name in class_files.keys():
-            class_data = results_df[results_df['Class'] == class_name]
-            if len(class_data) > 0:
-                print(f"  {class_name}: {len(class_data) // len(axes)}개 파일")
+        # 요약 통계
+        print("\n[분석 요약]")
+        print(f"  분석된 파일 수: {len(csv_files)}개")
+        print(f"  분석된 축: {', '.join(axes)}")
+        print(f"  총 결과 개수: {len(all_results)}개")
 
         return results_df
     else:
-        print("[오류] 분석된 결과가 없습니다.")
+        print("\n[오류] 분석된 결과가 없습니다.")
+        print("[가능한 원인]")
+        print("  1. 모든 파일에서 예외가 발생했습니다")
+        print("  2. CSV 파일의 열 이름이 예상과 다릅니다")
+        print("  3. 데이터가 충분하지 않습니다")
         return None
 
 
 # 실행
 if __name__ == "__main__":
     # 데이터 디렉토리 경로 설정
-    DATA_DIR = "/Users/seohyeon/PycharmProjects/AT_data/data_v1"
+    DATA_DIR = "/Users/seohyeon/PycharmProjects/AT_data/data_v2"
 
     # 배치 분석 실행
     results = analyze_all_files(
         data_dir=DATA_DIR,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        window_size=4096,
-        fft_size=16384,
-        cutoff_freq=100.0,
-        threshold_method="std",
+        fft_size=8192,  # FFT 크기 8192로 설정
+        apply_filter=True,
+        filter_order=5,
+        threshold_method="std",  # "std", "percentile", "recon_error"
         n_std=2.75,
         recon_error_value=0.3,
-        time_column='Time_us',
-        band_cv_f_min=0.3,
-        band_cv_f_max=60.0
+        time_column='Time_us'  # 시간 열 이름 (마이크로초 단위)
     )
 
     if results is not None:

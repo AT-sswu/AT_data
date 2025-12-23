@@ -12,478 +12,119 @@ plt.rcParams['axes.unicode_minus'] = False
 def analyze_frequency_distribution(results_csv_path, output_dir=None):
     """
     FFT 분석 결과에서 주파수 오차 분포를 분석합니다.
-
-    Parameters:
-    -----------
-    results_csv_path : str
-        FFT 분석 결과 CSV 파일 경로
-    output_dir : str
-        결과 저장 디렉토리 (None이면 CSV와 같은 위치)
+    (모든 파일을 'base' 클래스로 통일)
     """
-    # 결과 파일 읽기
+    # 1. 파일 읽기 및 경로 설정
+    if not Path(results_csv_path).exists():
+        print(f"Error: 파일을 찾을 수 없습니다 -> {results_csv_path}")
+        return None
+
     df = pd.read_csv(results_csv_path)
+
+    # [변경 사항] 모든 데이터를 'base' 클래스로 통일
+    df['Class'] = 'base'
 
     if output_dir is None:
         output_dir = Path(results_csv_path).parent
     else:
         output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # 클래스와 축 목록
-    classes = df['Class'].unique()
     axes = df['Axis'].unique()
 
     print("=" * 70)
-    print("주파수 오차 분포 분석")
+    print(f"주파수 오차 및 통계 분석 (Base 모드)")
     print("=" * 70)
 
-    # 1. 클래스별, 축별 통계
-    print("\n[1] 클래스별, 축별 공진 주파수 통계")
-    print("-" * 70)
-
+    # 2. 축별 통계 계산
     stats_list = []
-    for class_name in classes:
-        for axis in axes:
-            data = df[(df['Class'] == class_name) & (df['Axis'] == axis)]
-
-            if len(data) > 0:
-                freqs = data['Resonance_Frequency_Hz'].values
-                stats = {
-                    'Class': class_name,
-                    'Axis': axis,
-                    'Count': len(freqs),
-                    'Mean': np.mean(freqs),
-                    'Std': np.std(freqs),
-                    'Min': np.min(freqs),
-                    'Max': np.max(freqs),
-                    'Range': np.max(freqs) - np.min(freqs),
-                    'CV(%)': (np.std(freqs) / np.mean(freqs)) * 100  # 변동계수
-                }
-                stats_list.append(stats)
-
-                print(f"\n{class_name.upper()} - {axis}")
-                print(f"  샘플 수: {stats['Count']}")
-                print(f"  평균: {stats['Mean']:.2f} Hz")
-                print(f"  표준편차: {stats['Std']:.2f} Hz")
-                print(f"  범위: {stats['Min']:.2f} ~ {stats['Max']:.2f} Hz")
-                print(f"  변동계수: {stats['CV(%)']:.2f}%")
+    for axis in axes:
+        data = df[df['Axis'] == axis]['Resonance_Frequency_Hz'].values
+        if len(data) > 0:
+            stats = {
+                'Class': 'base',
+                'Axis': axis,
+                'Count': len(data),
+                'Mean': np.mean(data),
+                'Std': np.std(data),
+                'Min': np.min(data),
+                'Max': np.max(data),
+                'Range': np.max(data) - np.min(data),
+                'CV(%)': (np.std(data) / np.mean(data)) * 100
+            }
+            stats_list.append(stats)
 
     stats_df = pd.DataFrame(stats_list)
-    stats_output = output_dir / "frequency_statistics.csv"
+    stats_output = output_dir / "frequency_statistics_base.csv"
     stats_df.to_csv(stats_output, index=False, encoding='utf-8-sig')
-    print(f"\n✓ 통계 저장: {stats_output}")
+    print(f"✓ 통계 CSV 저장 완료: {stats_output}")
 
-    # 2. 클래스별 히스토그램 (축별로 서브플롯)
-    print("\n[2] 클래스별 주파수 분포 히스토그램 생성 중...")
+    # 3. 히트맵 시각화 (Mean, Std, CV%)
+    print("\n[2] 히트맵 시각화 생성 중...")
 
-    for class_name in classes:
-        class_data = df[df['Class'] == class_name]
+    # 히트맵을 위한 피벗 (Index: Axis, Columns: Class('base'))
+    pivot_mean = stats_df.pivot(index='Axis', columns='Class', values='Mean')
+    pivot_std = stats_df.pivot(index='Axis', columns='Class', values='Std')
+    pivot_cv = stats_df.pivot(index='Axis', columns='Class', values='CV(%)')
 
-        if len(class_data) == 0:
-            continue
+    fig, axes_heat = plt.subplots(1, 3, figsize=(18, 6))
 
-        fig, axes_plot = plt.subplots(2, 3, figsize=(18, 10))
-        fig.suptitle(f'공진 주파수 분포 - {class_name.upper()}', fontsize=16, fontweight='bold')
+    # (1) 평균 주파수 히트맵
+    sns.heatmap(pivot_mean, annot=True, fmt='.2f', cmap='YlOrRd', ax=axes_heat[0])
+    axes_heat[0].set_title('평균 주파수 (Hz)')
 
-        for idx, axis in enumerate(axes):
-            row = idx // 3
-            col = idx % 3
-            ax = axes_plot[row, col]
+    # (2) 표준편차(절대 오차) 히트맵
+    sns.heatmap(pivot_std, annot=True, fmt='.2f', cmap='Blues', ax=axes_heat[1])
+    axes_heat[1].set_title('표준편차 (오차 크기)')
 
-            axis_data = class_data[class_data['Axis'] == axis]['Resonance_Frequency_Hz'].values
+    # (3) 변동계수(상대 오차) 히트맵
+    sns.heatmap(pivot_cv, annot=True, fmt='.2f', cmap='RdYlGn_r', ax=axes_heat[2])
+    axes_heat[2].set_title('변동계수 (%)')
 
-            if len(axis_data) > 0:
-                # 히스토그램
-                ax.hist(axis_data, bins=20, alpha=0.7, color='steelblue', edgecolor='black')
+    plt.suptitle('축별 공진 주파수 통계 히트맵 (Base)', fontsize=16, fontweight='bold')
+    plt.tight_layout()
+    heatmap_output = output_dir / "stats_heatmaps_base.png"
+    plt.savefig(heatmap_output, dpi=150)
+    plt.close()
+    print(f"  ✓ 히트맵 저장: {heatmap_output}")
 
-                # 통계 정보 표시
-                mean_val = np.mean(axis_data)
-                std_val = np.std(axis_data)
-
-                ax.axvline(mean_val, color='red', linestyle='--', linewidth=2,
-                           label=f'평균: {mean_val:.2f} Hz')
-                ax.axvline(mean_val - std_val, color='orange', linestyle=':', linewidth=1.5,
-                           label=f'±1σ: {std_val:.2f} Hz')
-                ax.axvline(mean_val + std_val, color='orange', linestyle=':', linewidth=1.5)
-
-                ax.set_title(f'{axis}\n(n={len(axis_data)})', fontweight='bold')
-                ax.set_xlabel('주파수 (Hz)')
-                ax.set_ylabel('빈도')
-                ax.legend()
-                ax.grid(True, alpha=0.3)
-            else:
-                ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                        transform=ax.transAxes, fontsize=12)
-                ax.set_title(axis)
-
-        plt.tight_layout()
-        hist_output = output_dir / f"frequency_distribution_{class_name}.png"
-        plt.savefig(hist_output, dpi=150, bbox_inches='tight')
-        plt.close()
-        print(f"  ✓ {class_name}: {hist_output}")
-
-    # 3. 축별 박스플롯 (클래스 비교) - tick_labels로 수정
-    print("\n[3] 축별 클래스 비교 박스플롯 생성 중...")
-
+    # 4. 히스토그램 (축별 분포)
+    print("\n[3] 주파수 분포 히스토그램 생성 중...")
     fig, axes_plot = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle('축별 공진 주파수 비교 (클래스별)', fontsize=16, fontweight='bold')
-
     for idx, axis in enumerate(axes):
-        row = idx // 3
-        col = idx % 3
+        row, col = idx // 3, idx % 3
         ax = axes_plot[row, col]
-
-        # 클래스별 데이터 준비
-        data_for_box = []
-        labels_for_box = []
-
-        for class_name in classes:
-            axis_data = df[(df['Class'] == class_name) & (df['Axis'] == axis)]['Resonance_Frequency_Hz'].values
-            if len(axis_data) > 0:
-                data_for_box.append(axis_data)
-                labels_for_box.append(class_name)
-
-        if len(data_for_box) > 0:
-            bp = ax.boxplot(data_for_box, tick_labels=labels_for_box, patch_artist=True)
-
-            # 박스 색상 설정
-            colors = ['lightblue', 'lightgreen', 'lightyellow', 'lightcoral', 'plum']
-            for patch, color in zip(bp['boxes'], colors[:len(bp['boxes'])]):
-                patch.set_facecolor(color)
-
-            ax.set_title(f'{axis}', fontweight='bold', fontsize=12)
-            ax.set_ylabel('주파수 (Hz)')
-            ax.set_xlabel('클래스')
-            ax.grid(True, alpha=0.3, axis='y')
-            ax.tick_params(axis='x', rotation=45)
-        else:
-            ax.text(0.5, 0.5, '데이터 없음', ha='center', va='center',
-                    transform=ax.transAxes, fontsize=12)
-            ax.set_title(axis)
-
+        axis_data = df[df['Axis'] == axis]['Resonance_Frequency_Hz'].values
+        if len(axis_data) > 0:
+            ax.hist(axis_data, bins=20, alpha=0.7, color='steelblue', edgecolor='black')
+            mean_val = np.mean(axis_data)
+            ax.axvline(mean_val, color='red', linestyle='--', label=f'Mean: {mean_val:.2f}')
+            ax.set_title(f'{axis}')
+            ax.legend()
     plt.tight_layout()
-    boxplot_output = output_dir / "frequency_comparison_boxplot.png"
-    plt.savefig(boxplot_output, dpi=150, bbox_inches='tight')
+    plt.savefig(output_dir / "frequency_distribution_base.png", dpi=150)
     plt.close()
-    print(f"  ✓ {boxplot_output}")
 
-    # 4. 전체 바이올린 플롯
-    print("\n[4] 전체 바이올린 플롯 생성 중...")
-
-    fig, ax = plt.subplots(figsize=(16, 8))
-
-    # 데이터 재구성
-    plot_data = []
-    for _, row in df.iterrows():
-        plot_data.append({
-            'Class_Axis': f"{row['Class']}\n{row['Axis']}",
-            'Frequency': row['Resonance_Frequency_Hz'],
-            'Class': row['Class'],
-            'Axis': row['Axis']
-        })
-
-    plot_df = pd.DataFrame(plot_data)
-
-    # 바이올린 플롯
-    sns.violinplot(data=plot_df, x='Axis', y='Frequency', hue='Class', ax=ax, split=False)
-
-    ax.set_title('축별 주파수 분포 비교 (모든 클래스)', fontsize=16, fontweight='bold')
-    ax.set_xlabel('축', fontsize=12)
-    ax.set_ylabel('주파수 (Hz)', fontsize=12)
-    ax.legend(title='클래스', bbox_to_anchor=(1.05, 1), loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
-
-    plt.tight_layout()
-    violin_output = output_dir / "frequency_violin_plot.png"
-    plt.savefig(violin_output, dpi=150, bbox_inches='tight')
+    # 5. 막대 그래프 (평균 및 범위 비교)
+    print("\n[4] 통계 막대 그래프 생성 중...")
+    plt.figure(figsize=(12, 6))
+    plt.bar(stats_df['Axis'], stats_df['Mean'], yerr=stats_df['Std'], capsize=5, color='lightgray', edgecolor='black')
+    plt.title('축별 평균 공진 주파수 및 표준편차 (Base)')
+    plt.savefig(output_dir / "stats_bar_comparison_base.png", dpi=150)
     plt.close()
-    print(f"  ✓ {violin_output}")
-
-    # 5. 오차 범위 요약
-    print("\n[5] 오차 범위 요약")
-    print("-" * 70)
-
-    for axis in axes:
-        print(f"\n{axis}:")
-        axis_data = df[df['Axis'] == axis]
-
-        for class_name in classes:
-            class_axis_data = axis_data[axis_data['Class'] == class_name]['Resonance_Frequency_Hz'].values
-
-            if len(class_axis_data) > 0:
-                mean_val = np.mean(class_axis_data)
-                std_val = np.std(class_axis_data)
-
-                # 68% 신뢰구간 (±1σ)
-                ci_68_lower = mean_val - std_val
-                ci_68_upper = mean_val + std_val
-
-                # 95% 신뢰구간 (±2σ)
-                ci_95_lower = mean_val - 2 * std_val
-                ci_95_upper = mean_val + 2 * std_val
-
-                print(f"  {class_name}:")
-                print(f"    평균: {mean_val:.2f} Hz")
-                print(f"    68% 신뢰구간: [{ci_68_lower:.2f}, {ci_68_upper:.2f}] Hz")
-                print(f"    95% 신뢰구간: [{ci_95_lower:.2f}, {ci_95_upper:.2f}] Hz")
 
     print("\n" + "=" * 70)
-    print("기본 분석 완료! 이제 통계 CSV 시각화를 시작합니다...")
+    print("모든 분석 및 시각화 완료!")
     print("=" * 70)
-
-    # 6. 통계 CSV 시각화 추가
-    visualize_statistics_csv(stats_df, output_dir)
 
     return stats_df
 
 
-def visualize_statistics_csv(stats_df, output_dir):
-    """
-    frequency_statistics DataFrame을 다양한 플롯으로 시각화합니다.
-
-    Parameters:
-    -----------
-    stats_df : DataFrame
-        통계 데이터프레임
-    output_dir : Path
-        결과 저장 디렉토리
-    """
-    print("\n" + "=" * 70)
-    print("통계 CSV 시각화")
-    print("=" * 70)
-
-    classes = stats_df['Class'].unique()
-    axes = stats_df['Axis'].unique()
-
-    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8']
-
-    # 6-1. 평균 주파수 히트맵
-    print("\n[6-1] 평균 주파수 히트맵 생성 중...")
-
-    pivot_mean = stats_df.pivot(index='Axis', columns='Class', values='Mean')
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    sns.heatmap(pivot_mean, annot=True, fmt='.2f', cmap='YlOrRd',
-                linewidths=0.5, ax=ax, cbar_kws={'label': '평균 주파수 (Hz)'})
-    ax.set_title('클래스별-축별 평균 공진 주파수 히트맵', fontsize=16, fontweight='bold', pad=20)
-    ax.set_xlabel('클래스', fontsize=12, fontweight='bold')
-    ax.set_ylabel('축', fontsize=12, fontweight='bold')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_heatmap_mean.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-2. 표준편차 히트맵
-    print("\n[6-2] 표준편차 히트맵 생성 중...")
-
-    pivot_std = stats_df.pivot(index='Axis', columns='Class', values='Std')
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    sns.heatmap(pivot_std, annot=True, fmt='.2f', cmap='Blues',
-                linewidths=0.5, ax=ax, cbar_kws={'label': '표준편차 (Hz)'})
-    ax.set_title('클래스별-축별 표준편차 히트맵 (오차 크기)', fontsize=16, fontweight='bold', pad=20)
-    ax.set_xlabel('클래스', fontsize=12, fontweight='bold')
-    ax.set_ylabel('축', fontsize=12, fontweight='bold')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_heatmap_std.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-3. 변동계수(CV) 히트맵
-    print("\n[6-3] 변동계수(CV) 히트맵 생성 중...")
-
-    pivot_cv = stats_df.pivot(index='Axis', columns='Class', values='CV(%)')
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-    sns.heatmap(pivot_cv, annot=True, fmt='.2f', cmap='RdYlGn_r',
-                linewidths=0.5, ax=ax, cbar_kws={'label': '변동계수 (%)'})
-    ax.set_title('클래스별-축별 변동계수 히트맵 (상대적 오차)', fontsize=16, fontweight='bold', pad=20)
-    ax.set_xlabel('클래스', fontsize=12, fontweight='bold')
-    ax.set_ylabel('축', fontsize=12, fontweight='bold')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_heatmap_cv.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-4. 축별 평균 주파수 비교 막대그래프
-    print("\n[6-4] 축별 평균 주파수 막대그래프 생성 중...")
-
-    fig, ax = plt.subplots(figsize=(14, 8))
-
-    x = np.arange(len(axes))
-    width = 0.15
-
-    for idx, class_name in enumerate(classes):
-        class_data = stats_df[stats_df['Class'] == class_name]
-        means = [class_data[class_data['Axis'] == axis]['Mean'].values[0]
-                 if len(class_data[class_data['Axis'] == axis]) > 0 else 0
-                 for axis in axes]
-        stds = [class_data[class_data['Axis'] == axis]['Std'].values[0]
-                if len(class_data[class_data['Axis'] == axis]) > 0 else 0
-                for axis in axes]
-
-        offset = width * (idx - len(classes) / 2 + 0.5)
-        ax.bar(x + offset, means, width, label=class_name,
-               yerr=stds, capsize=5, alpha=0.8, color=colors[idx % len(colors)])
-
-    ax.set_xlabel('축', fontsize=12, fontweight='bold')
-    ax.set_ylabel('평균 주파수 (Hz)', fontsize=12, fontweight='bold')
-    ax.set_title('클래스별 축 평균 공진 주파수 비교 (±표준편차)', fontsize=16, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(axes)
-    ax.legend(title='클래스', loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_bar_mean_comparison.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-5. 클래스별 표준편차 비교 막대그래프
-    print("\n[6-5] 클래스별 표준편차 비교 막대그래프 생성 중...")
-
-    fig, ax = plt.subplots(figsize=(14, 8))
-
-    for idx, class_name in enumerate(classes):
-        class_data = stats_df[stats_df['Class'] == class_name]
-        stds = [class_data[class_data['Axis'] == axis]['Std'].values[0]
-                if len(class_data[class_data['Axis'] == axis]) > 0 else 0
-                for axis in axes]
-
-        offset = width * (idx - len(classes) / 2 + 0.5)
-        ax.bar(x + offset, stds, width, label=class_name,
-               alpha=0.8, color=colors[idx % len(colors)])
-
-    ax.set_xlabel('축', fontsize=12, fontweight='bold')
-    ax.set_ylabel('표준편차 (Hz)', fontsize=12, fontweight='bold')
-    ax.set_title('클래스별 축 표준편차 비교 (오차 크기)', fontsize=16, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(axes)
-    ax.legend(title='클래스', loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_bar_std_comparison.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-6. Range(범위) 비교
-    print("\n[6-6] 주파수 범위(Range) 비교 생성 중...")
-
-    fig, ax = plt.subplots(figsize=(14, 8))
-
-    for idx, class_name in enumerate(classes):
-        class_data = stats_df[stats_df['Class'] == class_name]
-        ranges = [class_data[class_data['Axis'] == axis]['Range'].values[0]
-                  if len(class_data[class_data['Axis'] == axis]) > 0 else 0
-                  for axis in axes]
-
-        offset = width * (idx - len(classes) / 2 + 0.5)
-        ax.bar(x + offset, ranges, width, label=class_name,
-               alpha=0.8, color=colors[idx % len(colors)])
-
-    ax.set_xlabel('축', fontsize=12, fontweight='bold')
-    ax.set_ylabel('주파수 범위 (Hz)', fontsize=12, fontweight='bold')
-    ax.set_title('클래스별 축 주파수 범위 (Max - Min)', fontsize=16, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(axes)
-    ax.legend(title='클래스', loc='upper left')
-    ax.grid(True, alpha=0.3, axis='y')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_bar_range_comparison.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-7. 평균 vs 표준편차 산점도
-    print("\n[6-7] 평균 vs 표준편차 산점도 생성 중...")
-
-    fig, ax = plt.subplots(figsize=(12, 8))
-
-    for idx, class_name in enumerate(classes):
-        class_data = stats_df[stats_df['Class'] == class_name]
-        ax.scatter(class_data['Mean'], class_data['Std'],
-                   s=150, alpha=0.6, label=class_name,
-                   color=colors[idx % len(colors)])
-
-        # 축 이름 표시
-        for _, row in class_data.iterrows():
-            ax.annotate(row['Axis'], (row['Mean'], row['Std']),
-                        xytext=(5, 5), textcoords='offset points',
-                        fontsize=8, alpha=0.7)
-
-    ax.set_xlabel('평균 주파수 (Hz)', fontsize=12, fontweight='bold')
-    ax.set_ylabel('표준편차 (Hz)', fontsize=12, fontweight='bold')
-    ax.set_title('평균 주파수 vs 표준편차 관계', fontsize=16, fontweight='bold')
-    ax.legend(title='클래스')
-    ax.grid(True, alpha=0.3)
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_scatter_mean_vs_std.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    # 6-8. 축별 요약 플롯 (평균, 표준편차, CV 한번에)
-    print("\n[6-8] 축별 종합 요약 플롯 생성 중...")
-
-    fig, axes_plot = plt.subplots(2, 3, figsize=(18, 10))
-    fig.suptitle('축별 통계 종합 요약', fontsize=16, fontweight='bold')
-
-    for idx, axis in enumerate(axes):
-        row = idx // 3
-        col = idx % 3
-        ax = axes_plot[row, col]
-
-        axis_data = stats_df[stats_df['Axis'] == axis]
-
-        x_pos = np.arange(len(classes))
-
-        # 평균 막대
-        means = axis_data['Mean'].values
-        stds = axis_data['Std'].values
-
-        bars = ax.bar(x_pos, means, yerr=stds, capsize=5,
-                      alpha=0.7, color=colors[:len(classes)])
-
-        # CV 값을 막대 위에 표시
-        for i, (bar, cv) in enumerate(zip(bars, axis_data['CV(%)'].values)):
-            height = bar.get_height()
-            ax.text(bar.get_x() + bar.get_width() / 2., height + stds[i],
-                    f'CV: {cv:.1f}%', ha='center', va='bottom', fontsize=8)
-
-        ax.set_title(f'{axis}', fontweight='bold', fontsize=12)
-        ax.set_ylabel('평균 주파수 (Hz)')
-        ax.set_xticks(x_pos)
-        ax.set_xticklabels(axis_data['Class'].values, rotation=45, ha='right')
-        ax.grid(True, alpha=0.3, axis='y')
-
-    plt.tight_layout()
-    output_path = output_dir / "stats_summary_by_axis.png"
-    plt.savefig(output_path, dpi=150, bbox_inches='tight')
-    plt.close()
-    print(f"  ✓ {output_path}")
-
-    print("\n" + "=" * 70)
-    print("모든 시각화 완료!")
-    print("=" * 70)
-
-
-# 실행
+# --- 실행부 ---
 if __name__ == "__main__":
-    # FFT 분석 결과 CSV 파일 경로
-    RESULTS_CSV = "/Users/seohyeon/PycharmProjects/AT_data/data_v1/all_files_fft_analysis_results_kalman.csv"
+    # 요청하신 data_v2 경로 및 파일명
+    RESULTS_CSV = "/Users/seohyeon/PycharmProjects/AT_data/data_v2/fft_analysis_base_results.csv"
 
-    # 분석 실행 (통계 CSV 시각화 포함)
     stats = analyze_frequency_distribution(RESULTS_CSV)
-
-    print("\n[통계 요약]")
-    print(stats.to_string(index=False))
+    if stats is not None:
+        print(stats.to_string(index=False))
