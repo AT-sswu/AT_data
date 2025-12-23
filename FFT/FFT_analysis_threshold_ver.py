@@ -3,41 +3,94 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
-from scipy.signal import butter, filtfilt
 from pathlib import Path
 
 
+# 칼만 필터 클래스
+class KalmanFilter:
+    def __init__(self, process_variance=1e-5, measurement_variance=1e-2, estimated_measurement_variance=1e-2):
+        """
+        1D 칼만 필터 초기화
+
+        Parameters:
+        -----------
+        process_variance : float
+            프로세스 노이즈 분산 (Q) - 시스템 모델의 불확실성
+        measurement_variance : float
+            측정 노이즈 분산 (R) - 센서 측정의 불확실성
+        estimated_measurement_variance : float
+            초기 추정 오차 공분산 (P)
+        """
+        self.process_variance = process_variance  # Q
+        self.measurement_variance = measurement_variance  # R
+        self.estimated_measurement_variance = estimated_measurement_variance  # P
+        self.posteri_estimate = 0.0  # 사후 추정값
+        self.posteri_error_estimate = 1.0  # 사후 오차 추정
+
+    def update(self, measurement):
+        """
+        칼만 필터 업데이트
+
+        Parameters:
+        -----------
+        measurement : float
+            새로운 측정값
+
+        Returns:
+        --------
+        float : 필터링된 값
+        """
+        # 예측 단계 (Prediction)
+        priori_estimate = self.posteri_estimate
+        priori_error_estimate = self.posteri_error_estimate + self.process_variance
+
+        # 업데이트 단계 (Update)
+        kalman_gain = priori_error_estimate / (priori_error_estimate + self.measurement_variance)
+        self.posteri_estimate = priori_estimate + kalman_gain * (measurement - priori_estimate)
+        self.posteri_error_estimate = (1 - kalman_gain) * priori_error_estimate
+
+        return self.posteri_estimate
+
+
+def apply_kalman_filter(data, process_variance=1e-5, measurement_variance=1e-2):
+    """
+    데이터에 칼만 필터 적용
+
+    Parameters:
+    -----------
+    data : numpy.array
+        필터링할 데이터
+    process_variance : float
+        프로세스 노이즈 분산
+    measurement_variance : float
+        측정 노이즈 분산
+
+    Returns:
+    --------
+    numpy.array : 필터링된 데이터
+    """
+    kf = KalmanFilter(
+        process_variance=process_variance,
+        measurement_variance=measurement_variance
+    )
+
+    filtered_data = np.zeros(len(data))
+    for i, measurement in enumerate(data):
+        filtered_data[i] = kf.update(measurement)
+
+    return filtered_data
+
+
 # 저역통과 필터 함수
-def butter_lowpass(cutoff, fs, order=5):
-    nyq = 0.5 * fs
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    return b, a
-
-
-def butter_lowpass_filter(data, cutoff, fs, order=5):
-    b, a = butter_lowpass(cutoff, fs, order=order)
-    return filtfilt(b, a, data)
+# 저역통과 필터 함수 제거됨 (칼만 필터만 사용)
 
 
 # 샘플링 레이트 계산 함수
 def calculate_sample_rate(df, time_column='Time_us'):
     """
     CSV 파일의 시간 열(마이크로초)에서 샘플링 레이트를 계산합니다.
-
-    Parameters:
-    -----------
-    df : pandas.DataFrame
-        데이터프레임
-    time_column : str
-        시간 열의 이름 (기본값: 'Time_us')
-
-    Returns:
-    --------
-    float : 샘플링 레이트 (Hz)
     """
     if time_column not in df.columns:
-        # 시간 열이 없으면 첫 번째 열을 시간으로 간주
         time_column = df.columns[0]
 
     time_data = df[time_column].dropna().values
@@ -45,16 +98,9 @@ def calculate_sample_rate(df, time_column='Time_us'):
     if len(time_data) < 2:
         raise ValueError("시간 데이터가 충분하지 않습니다.")
 
-    # 시간 간격 계산 (마이크로초 단위)
     time_diffs = np.diff(time_data)
-
-    # 평균 시간 간격 (마이크로초)
     avg_time_diff_us = np.mean(time_diffs)
-
-    # 평균 시간 간격을 초 단위로 변환
     avg_time_diff_sec = avg_time_diff_us / 1_000_000
-
-    # 샘플링 레이트 = 1 / 평균 시간 간격
     sample_rate = 1 / avg_time_diff_sec
 
     return sample_rate
@@ -118,9 +164,10 @@ def fft_analysis(
 def analyze_single_file(
         file_path,
         axes,
-        fft_size=8192,
-        apply_filter=True,
-        filter_order=5,
+        fft_size=16384,
+        filter_type='kalman',  # 'none', 'kalman'
+        kalman_process_var=1e-5,
+        kalman_measurement_var=1e-2,
         threshold_method="std",
         n_std=2.75,
         recon_error_value=0.3,
@@ -146,10 +193,11 @@ def analyze_single_file(
             continue
 
         data = df[axis].dropna().values
+        filter_applied_str = filter_type
 
-        if apply_filter:
-            cutoff = sample_rate / 4
-            data = butter_lowpass_filter(data, cutoff=cutoff, fs=sample_rate, order=filter_order)
+        # 칼만 필터 적용
+        if filter_type == 'kalman':
+            data = apply_kalman_filter(data, kalman_process_var, kalman_measurement_var)
 
         freqs, amps, resonance_freq, threshold_ranges, threshold = fft_analysis(
             data,
@@ -177,8 +225,9 @@ def analyze_single_file(
             'Threshold_Ranges': threshold_ranges_str,
             'Sample_Rate': round(sample_rate, 2),
             'FFT_Size': fft_size,
-            'Filter_Applied': apply_filter,
-            'Filter_Order': filter_order if apply_filter else 'N/A'
+            'Filter_Type': filter_applied_str,
+            'Kalman_Process_Var': kalman_process_var if filter_type == 'kalman' else 'N/A',
+            'Kalman_Measurement_Var': kalman_measurement_var if filter_type == 'kalman' else 'N/A'
         })
 
         # subplot 그리기
@@ -192,9 +241,9 @@ def analyze_single_file(
         plt.grid(True)
         plt.legend()
 
-    plt.suptitle(f"FFT Frequency Spectrum - {file_title}", fontsize=16)
+    plt.suptitle(f"FFT Frequency Spectrum - {file_title} (Filter: {filter_type})", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.93])
-    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot.png"), dpi=150)
+    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot_{filter_type}.png"), dpi=150)
     plt.close()
 
     return results
@@ -204,9 +253,10 @@ def analyze_single_file(
 def analyze_all_files(
         data_dir,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        fft_size=8192,
-        apply_filter=True,
-        filter_order=5,
+        fft_size=16384,
+        filter_type='kalman',  # 'none', 'kalman'
+        kalman_process_var=1e-5,
+        kalman_measurement_var=1e-2,
         threshold_method="std",
         n_std=2.75,
         recon_error_value=0.3,
@@ -214,15 +264,6 @@ def analyze_all_files(
 ):
     """
     지정된 디렉토리의 모든 CSV 파일에 대해 FFT 분석을 수행합니다.
-
-    Parameters:
-    -----------
-    data_dir : str
-        데이터 파일이 있는 디렉토리 경로
-    fft_size : int
-        FFT 크기 (기본값: 8192)
-    time_column : str
-        시간 열 이름 (기본값: 'Time_us', 마이크로초 단위)
     """
     data_path = Path(data_dir)
 
@@ -234,6 +275,7 @@ def analyze_all_files(
         return None
 
     print(f"총 {len(csv_files)}개의 파일을 찾았습니다.\n")
+    print(f"사용 필터: {filter_type}")
 
     # 클래스별로 파일 분류
     class_files = {
@@ -277,8 +319,9 @@ def analyze_all_files(
                     file_path=str(file_path),
                     axes=axes,
                     fft_size=fft_size,
-                    apply_filter=apply_filter,
-                    filter_order=filter_order,
+                    filter_type=filter_type,
+                    kalman_process_var=kalman_process_var,
+                    kalman_measurement_var=kalman_measurement_var,
                     threshold_method=threshold_method,
                     n_std=n_std,
                     recon_error_value=recon_error_value,
@@ -303,10 +346,11 @@ def analyze_all_files(
         # 컬럼 순서 재정렬
         column_order = ['Class', 'File', 'Axis', 'Resonance_Frequency_Hz',
                         'Threshold_Value', 'Threshold_Method', 'Threshold_Ranges',
-                        'Sample_Rate', 'FFT_Size', 'Filter_Applied', 'Filter_Order']
+                        'Sample_Rate', 'FFT_Size', 'Filter_Type',
+                        'Kalman_Process_Var', 'Kalman_Measurement_Var']
         results_df = results_df[column_order]
 
-        output_path = data_path / "all_files_fft_analysis_results.csv"
+        output_path = data_path / f"all_files_fft_analysis_results_{filter_type}.csv"
         results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
         print(f"\n{'=' * 60}")
@@ -333,16 +377,18 @@ if __name__ == "__main__":
     DATA_DIR = "/Users/seohyeon/PycharmProjects/AT_data/data_v1"
 
     # 배치 분석 실행
+    # filter_type 옵션: 'none', 'kalman'
     results = analyze_all_files(
         data_dir=DATA_DIR,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        fft_size=8192,  # FFT 크기 8192로 설정
-        apply_filter=True,
-        filter_order=5,
-        threshold_method="std",  # "std", "percentile", "recon_error"
+        fft_size=16384,
+        filter_type='kalman',  # 칼만 필터 사용
+        kalman_process_var=1e-5,  # 칼만 필터 프로세스 노이즈
+        kalman_measurement_var=1e-2,  # 칼만 필터 측정 노이즈
+        threshold_method="std",
         n_std=2.75,
         recon_error_value=0.3,
-        time_column='Time_us'  # 시간 열 이름 (마이크로초 단위)
+        time_column='Time_us'
     )
 
     if results is not None:
