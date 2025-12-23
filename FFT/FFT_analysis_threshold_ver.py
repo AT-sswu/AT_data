@@ -3,74 +3,21 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.fft import fft, fftfreq
+from scipy.signal import butter, filtfilt
 from pathlib import Path
 
-# 칼만 필터 클래스
-class KalmanFilter:
-    def __init__(self, process_variance=1e-5, measurement_variance=1e-2, estimated_measurement_variance=1e-2):
-        """
-        1D 칼만 필터 초기화
-        Parameters:
-        -----------
-        process_variance : float
-            프로세스 노이즈 분산 (Q) - 시스템 모델의 불확실성
-        measurement_variance : float
-            측정 노이즈 분산 (R) - 센서 측정의 불확실성
-        estimated_measurement_variance : float
-            초기 추정 오차 공분산 (P)
-        """
-        self.process_variance = process_variance  # Q
-        self.measurement_variance = measurement_variance  # R
-        self.estimated_measurement_variance = estimated_measurement_variance  # P
-        self.posteri_estimate = 0.0  # 사후 추정값
-        self.posteri_error_estimate = 1.0  # 사후 오차 추정
 
-    def update(self, measurement):
-        """
-        칼만 필터 업데이트
-        Parameters:
-        -----------
-        measurement : float
-            새로운 측정값
-        Returns:
-        --------
-        float : 필터링된 값
-        """
-        # 예측 단계 (Prediction)
-        priori_estimate = self.posteri_estimate
-        priori_error_estimate = self.posteri_error_estimate + self.process_variance
-
-        # 업데이트 단계 (Update)
-        kalman_gain = priori_error_estimate / (priori_error_estimate + self.measurement_variance)
-        self.posteri_estimate = priori_estimate + kalman_gain * (measurement - priori_estimate)
-        self.posteri_error_estimate = (1 - kalman_gain) * priori_error_estimate
-
-        return self.posteri_estimate
-
-
-def apply_kalman_filter(data, process_variance=1e-5, measurement_variance=1e-2):
+# ===============================
+# Butterworth LPF
+# ===============================
+def apply_butterworth_filter(data, sample_rate, cutoff=100.0, order=4):
     """
-    데이터에 칼만 필터 적용
-    Parameters:
-    -----------
-    data : numpy.array
-        필터링할 데이터
-    process_variance : float
-        프로세스 노이즈 분산
-    measurement_variance : float
-        측정 노이즈 분산
-    Returns:
-    --------
-    numpy.array : 필터링된 데이터
+    Butterworth 저역통과 필터 적용
     """
-    kf = KalmanFilter(
-        process_variance=process_variance,
-        measurement_variance=measurement_variance
-    )
-    filtered_data = np.zeros(len(data))
-    for i, measurement in enumerate(data):
-        filtered_data[i] = kf.update(measurement)
-    return filtered_data
+    nyq = 0.5 * sample_rate
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype="low")
+    return filtfilt(b, a, data)
 
 
 # 샘플링 레이트 계산 함수
@@ -93,7 +40,7 @@ def calculate_sample_rate(df, time_column='Time_us'):
 
 
 # ===============================
-# Band-limited CV (1번 코드에서 추가)
+# Band-limited CV
 # ===============================
 def calculate_band_cv(freqs, amps, f_min=1.0, f_max=100.0):
     """
@@ -127,21 +74,30 @@ def calculate_threshold(amps, method="std", n_std=2.75, recon_error_value=0.3):
 # FFT 분석 함수
 def fft_analysis(
     data,
-    sample_rate=296,
-    fft_size=None,
+    sample_rate,
+    window_size=4096,
+    fft_size=16384,
     threshold_method="std",
     n_std=2.75,
     recon_error_value=0.3
 ):
+    """
+    FFT 분석 수행
+    window_size 만큼의 데이터를 사용하고, fft_size로 zero-padding
+    """
+    # window_size 만큼만 사용
+    data = data[:window_size]
     data = data - np.mean(data)
-    n = fft_size if fft_size else len(data)
-    data = data[:n]
+
+    # zero-padding
+    if fft_size > window_size:
+        data = np.pad(data, (0, fft_size - window_size))
 
     y = fft(data)
-    x = fftfreq(n, 1 / sample_rate)
+    x = fftfreq(fft_size, 1 / sample_rate)
 
-    positive_freqs = x[:n // 2]
-    positive_amps = np.abs(y[:n // 2]) * 2 / n
+    positive_freqs = x[:fft_size // 2]
+    positive_amps = np.abs(y[:fft_size // 2]) * 2 / window_size
 
     resonance_freq = positive_freqs[np.argmax(positive_amps)]
     threshold = calculate_threshold(positive_amps, threshold_method, n_std, recon_error_value)
@@ -168,15 +124,14 @@ def fft_analysis(
 def analyze_single_file(
     file_path,
     axes,
+    window_size=4096,
     fft_size=16384,
-    filter_type='kalman',  # 'none', 'kalman'
-    kalman_process_var=1e-5,
-    kalman_measurement_var=1e-2,
+    cutoff_freq=100.0,
     threshold_method="std",
     n_std=2.75,
     recon_error_value=0.3,
     time_column='Time_us',
-    band_cv_f_min=0.3,  # Band CV 주파수 범위
+    band_cv_f_min=0.3,
     band_cv_f_max=60.0
 ):
     df = pd.read_csv(file_path)
@@ -197,24 +152,26 @@ def analyze_single_file(
             continue
 
         data = df[axis].dropna().values
-        filter_applied_str = filter_type
 
-        # 칼만 필터 적용
-        if filter_type == 'kalman':
-            data = apply_kalman_filter(data, kalman_process_var, kalman_measurement_var)
+        # Butterworth 필터 적용
+        data = apply_butterworth_filter(
+            data,
+            sample_rate=sample_rate,
+            cutoff=cutoff_freq,
+            order=4
+        )
 
         freqs, amps, resonance_freq, threshold_ranges, threshold = fft_analysis(
             data,
             sample_rate=sample_rate,
+            window_size=window_size,
             fft_size=fft_size,
             threshold_method=threshold_method,
             n_std=n_std,
             recon_error_value=recon_error_value
         )
 
-        # ===============================
-        # Band CV 계산 (1번 코드에서 추가)
-        # ===============================
+        # Band CV 계산
         band_cv = calculate_band_cv(freqs, amps, f_min=band_cv_f_min, f_max=band_cv_f_max)
 
         # Threshold 범위를 문자열로 변환
@@ -229,16 +186,16 @@ def analyze_single_file(
             'File': file_title,
             'Axis': axis,
             'Resonance_Frequency_Hz': round(resonance_freq, 2),
-            'Band_CV': round(band_cv, 2) if not np.isnan(band_cv) else 'N/A',  # Band CV 추가
+            'Band_CV': round(band_cv, 2) if not np.isnan(band_cv) else 'N/A',
+            'Band_CV_Freq_Range': f"{band_cv_f_min}-{band_cv_f_max}Hz",
             'Threshold_Value': round(threshold, 4),
             'Threshold_Method': threshold_method,
             'Threshold_Ranges': threshold_ranges_str,
             'Sample_Rate': round(sample_rate, 2),
+            'Window_Size': window_size,
             'FFT_Size': fft_size,
-            'Filter_Type': filter_applied_str,
-            'Kalman_Process_Var': kalman_process_var if filter_type == 'kalman' else 'N/A',
-            'Kalman_Measurement_Var': kalman_measurement_var if filter_type == 'kalman' else 'N/A',
-            'Band_CV_Freq_Range': f"{band_cv_f_min}-{band_cv_f_max}Hz"  # Band CV 주파수 범위 추가
+            'Filter_Type': 'Butterworth',
+            'Cutoff_Hz': cutoff_freq
         })
 
         # subplot 그리기
@@ -252,9 +209,9 @@ def analyze_single_file(
         plt.grid(True)
         plt.legend()
 
-    plt.suptitle(f"FFT Frequency Spectrum - {file_title} (Filter: {filter_type})", fontsize=16)
+    plt.suptitle(f"FFT Frequency Spectrum - {file_title} (Filter: Butterworth)", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.93])
-    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot_{filter_type}.png"), dpi=150)
+    plt.savefig(os.path.join(os.path.dirname(file_path), f"{file_title}_fft_plot_butterworth.png"), dpi=150)
     plt.close()
 
     return results
@@ -264,10 +221,9 @@ def analyze_single_file(
 def analyze_all_files(
     data_dir,
     axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
+    window_size=4096,
     fft_size=16384,
-    filter_type='kalman',  # 'none', 'kalman'
-    kalman_process_var=1e-5,
-    kalman_measurement_var=1e-2,
+    cutoff_freq=100.0,
     threshold_method="std",
     n_std=2.75,
     recon_error_value=0.3,
@@ -288,7 +244,8 @@ def analyze_all_files(
         return None
 
     print(f"총 {len(csv_files)}개의 파일을 찾았습니다.\n")
-    print(f"사용 필터: {filter_type}")
+    print(f"사용 필터: Butterworth (Cutoff: {cutoff_freq} Hz)")
+    print(f"Window Size: {window_size}, FFT Size: {fft_size}")
 
     # 클래스별로 파일 분류
     class_files = {
@@ -330,10 +287,9 @@ def analyze_all_files(
                 file_results = analyze_single_file(
                     file_path=str(file_path),
                     axes=axes,
+                    window_size=window_size,
                     fft_size=fft_size,
-                    filter_type=filter_type,
-                    kalman_process_var=kalman_process_var,
-                    kalman_measurement_var=kalman_measurement_var,
+                    cutoff_freq=cutoff_freq,
                     threshold_method=threshold_method,
                     n_std=n_std,
                     recon_error_value=recon_error_value,
@@ -359,11 +315,11 @@ def analyze_all_files(
         # 컬럼 순서 재정렬
         column_order = ['Class', 'File', 'Axis', 'Resonance_Frequency_Hz', 'Band_CV',
                        'Band_CV_Freq_Range', 'Threshold_Value', 'Threshold_Method',
-                       'Threshold_Ranges', 'Sample_Rate', 'FFT_Size', 'Filter_Type',
-                       'Kalman_Process_Var', 'Kalman_Measurement_Var']
+                       'Threshold_Ranges', 'Sample_Rate', 'Window_Size', 'FFT_Size',
+                       'Filter_Type', 'Cutoff_Hz']
         results_df = results_df[column_order]
 
-        output_path = data_path / f"all_files_fft_analysis_results_{filter_type}_with_bandCV.csv"
+        output_path = data_path / f"all_files_fft_analysis_butterworth_bandCV.csv"
         results_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
         print(f"\n{'=' * 60}")
@@ -390,19 +346,17 @@ if __name__ == "__main__":
     DATA_DIR = "/Users/seohyeon/PycharmProjects/AT_data/data_v1"
 
     # 배치 분석 실행
-    # filter_type 옵션: 'none', 'kalman'
     results = analyze_all_files(
         data_dir=DATA_DIR,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
+        window_size=4096,
         fft_size=16384,
-        filter_type='kalman',  # 칼만 필터 사용
-        kalman_process_var=1e-5,  # 칼만 필터 프로세스 노이즈
-        kalman_measurement_var=1e-2,  # 칼만 필터 측정 노이즈
+        cutoff_freq=100.0,
         threshold_method="std",
         n_std=2.75,
         recon_error_value=0.3,
         time_column='Time_us',
-        band_cv_f_min=0.3,  # Band CV 계산 주파수 범위 (1번 코드와 동일)
+        band_cv_f_min=0.3,
         band_cv_f_max=60.0
     )
 
