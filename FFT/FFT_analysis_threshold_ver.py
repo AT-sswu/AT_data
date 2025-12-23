@@ -31,7 +31,7 @@ def apply_butterworth_filter(data, sample_rate, cutoff=100.0, order=4):
 
 
 # ===============================
-# Band-limited CV (★ 핵심)
+# Band-limited CV
 # ===============================
 def calculate_band_cv(freqs, amps, f_min=1.0, f_max=100.0):
     band = (freqs >= f_min) & (freqs <= f_max)
@@ -65,6 +65,17 @@ def fft_analysis(data, sample_rate, window_size=4096, fft_size=16384):
 
 
 # ===============================
+# Class 추출 함수 (★ 추가된 부분)
+# ===============================
+def extract_class_from_filename(filename):
+    parts = filename.split("_")
+    for p in parts:
+        if p.lower().startswith("class"):
+            return p
+    return "Unknown"
+
+
+# ===============================
 # 단일 파일 분석
 # ===============================
 def analyze_single_file(
@@ -77,6 +88,7 @@ def analyze_single_file(
 ):
     df = pd.read_csv(file_path)
     file_title = os.path.splitext(os.path.basename(file_path))[0]
+    class_name = extract_class_from_filename(file_title)
 
     sample_rate = calculate_sample_rate(df, time_column)
     print(f"  Sample rate: {sample_rate:.2f} Hz")
@@ -104,14 +116,10 @@ def analyze_single_file(
             fft_size
         )
 
-        band_cv = calculate_band_cv(
-            freqs,
-            amps,
-            f_min=1.0,
-            f_max=100.0
-        )
+        band_cv = calculate_band_cv(freqs, amps, 1.0, 100.0)
 
         results.append({
+            "Class": class_name,                 # ★ 추가
             "File": file_title,
             "Axis": axis,
             "Resonance_Frequency_Hz": round(resonance_freq, 2),
