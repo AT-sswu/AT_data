@@ -118,7 +118,7 @@ def fft_analysis(
 def analyze_single_file(
         file_path,
         axes,
-        fft_size=16384,
+        fft_size=8192,
         apply_filter=True,
         filter_order=5,
         threshold_method="std",
@@ -204,7 +204,7 @@ def analyze_single_file(
 def analyze_all_files(
         data_dir,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        fft_size=16384,
+        fft_size=8192,
         apply_filter=True,
         filter_order=5,
         threshold_method="std",
@@ -220,7 +220,7 @@ def analyze_all_files(
     data_dir : str
         데이터 파일이 있는 디렉토리 경로
     fft_size : int
-        FFT 크기 (기본값: 16384)
+        FFT 크기 (기본값: 8192)
     time_column : str
         시간 열 이름 (기본값: 'Time_us', 마이크로초 단위)
     """
@@ -336,7 +336,7 @@ if __name__ == "__main__":
     results = analyze_all_files(
         data_dir=DATA_DIR,
         axes=["Accel_X", "Accel_Y", "Accel_Z", "Gyro_X", "Gyro_Y", "Gyro_Z"],
-        fft_size=16384,  # FFT 크기 16384로 설정
+        fft_size=8192,  # FFT 크기 8192로 설정
         apply_filter=True,
         filter_order=5,
         threshold_method="std",  # "std", "percentile", "recon_error"
